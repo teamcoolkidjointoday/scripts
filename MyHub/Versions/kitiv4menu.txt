@@ -1,0 +1,2815 @@
+-- MM2 Professional GUI & ESP System (Full KITI_RBB Integration)
+-- Исправленная версия с поддержкой сенсорных экранов
+-- Фиксы: слайдеры на телефонах, Bhop на мобильных устройствах
+-- + АВТОФАРМ МОНЕТ (с таймером ресета 70 секунд)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- =============================================
+-- ========== ПЕРЕМЕННЫЕ СОСТОЯНИЙ ==========
+-- =============================================
+
+-- ESP
+local ESP_Enabled = false
+local Highlights = {}
+local espConnection = nil
+
+-- Bhop
+local bhopActive = false
+local bhopConnection = nil
+local bhopSpeed = 50
+local bhopLastJump = 0
+local bhopJumpRequestConnection = nil
+local bhopJumpPressed = false
+
+-- Gun ESP
+local gunEspEnabled = false
+local gunEspObjects = {}
+local gunEspTimer = 0
+
+-- FPS Boost
+local fpsBoostEnabled = false
+local fpsBoostDescendantConnection = nil
+
+-- Fly
+local flyActive = false
+local flyKeyDown = nil
+local flyKeyUp = nil
+local flySpeed = 15
+local flying = false
+
+-- Noclip
+local noclipActive = false
+local noclipConnection = nil
+
+-- InfJump
+local infJumpActive = false
+local infJumpConnection = nil
+local infJumpDebounce = false
+
+-- Spin
+local spinActive = false
+local spinSpeed = 0
+local spinInstance = nil
+
+-- Shaders
+local shaderType = "None"
+local shaderLoop = nil
+
+-- Auto Gun
+local autoGunEnabled = false
+local currentWalkSpeed = 16
+
+-- Jerk
+local jerkActive = false
+local jerkTool = nil
+local jerkTrack = nil
+local jerkJorking = false
+
+-- Bang
+local bangActive = false
+local bangTarget = nil
+local bangAnim = nil
+local bangTrack = nil
+local bangDiedConnection = nil
+local bangSeatConnection = nil
+
+-- Silent Aim
+local silentAimEnabled = false
+local shotButton = nil
+local Offset = 2.8
+
+-- Аура
+local auraActive = false
+local auraParticles = {}
+local auraCache = {}
+local auraSelected = {}
+local auraColor = Color3.fromRGB(133, 220, 255)
+local auraColorValues = {R = 133, G = 220, B = 255}
+local auraDropdownVisible = false
+local auraDropdownContainer = nil
+
+local aura_ids = {
+    angel = "97658130917593",
+    starlight = "134645216613107",
+    heavenly = "139300897520961",
+    ribbon = "132069507632161",
+    sakura = "81755778619404",
+    wind = "80694081850877",
+    flow = "119913533725648",
+    star = "73754563740680"
+}
+local aura_order = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
+
+for _, name in ipairs(aura_order) do
+    auraSelected[name] = false
+end
+
+-- =============================================
+-- ========== АВТОФАРМ ПЕРЕМЕННЫЕ ==========
+-- =============================================
+
+local Farm_Enabled = false
+local IsFarming = false
+local FarmThread = nil
+local CoinContainer = nil
+local IsResetting = false
+local TouchedCoins = {}
+local Radius = 200
+local WalkSpeed = 20
+local characterAddedConnection = nil
+local ResetTimer = 70
+local RoundStartTime = 0
+local TimerThread = nil
+local RoundActive = false
+
+-- =============================================
+-- ========== UTILITY FUNCTIONS ==========
+-- =============================================
+
+local function getPlayerRole(player)
+    if not player or not player:IsA("Player") then return "Innocent" end
+    
+    local character = player.Character
+    local backpack = player.Backpack
+    
+    local hasKnife = false
+    local hasGun = false
+    
+    if backpack then
+        if backpack:FindFirstChild("Knife") then hasKnife = true end
+        if backpack:FindFirstChild("Gun") then hasGun = true end
+    end
+    
+    if character then
+        if character:FindFirstChild("Knife") then hasKnife = true end
+        if character:FindFirstChild("Gun") then hasGun = true end
+    end
+    
+    if hasKnife then
+        return "Murderer"
+    elseif hasGun then
+        return "Sheriff"
+    else
+        return "Innocent"
+    end
+end
+
+local function notify(Title, Text, Time)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = Title,
+        Text = Text,
+        Duration = Time or 3
+    })
+end
+
+-- =============================================
+-- ========== ФУНКЦИИ УБИЙСТВА ==========
+-- =============================================
+
+local function getKnife()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    local knife = character:FindFirstChild("Knife") or LocalPlayer.Backpack:FindFirstChild("Knife")
+    if knife then
+        knife.Parent = character
+        return knife
+    end
+    return nil
+end
+
+local function killTargetRemote(targetPlayer)
+    local character = LocalPlayer.Character
+    local targetChar = targetPlayer.Character
+    
+    if character and targetChar then
+        local myHrp = character:FindFirstChild("HumanoidRootPart")
+        local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+        local targetHum = targetChar:FindFirstChildOfClass("Humanoid")
+        local knife = getKnife()
+        
+        if myHrp and targetHrp and targetHum and targetHum.Health > 0 and knife then
+            local knifeHandle = knife:FindFirstChild("Handle") or knife:FindFirstChildWhichIsA("BasePart")
+            if knifeHandle then
+                knife:Activate()
+                
+                if firetouchinterest then
+                    firetouchinterest(targetHrp, knifeHandle, 0)
+                    task.wait()
+                    firetouchinterest(targetHrp, knifeHandle, 1)
+                else
+                    local previousCFrame = myHrp.CFrame
+                    myHrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 1)
+                    task.wait(0.02)
+                    knife:Activate()
+                    myHrp.CFrame = previousCFrame
+                end
+            end
+        end
+    end
+end
+
+-- =============================================
+-- ========== SILENT AIM ==========
+-- =============================================
+
+local function GetMurderer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        local character = player.Character
+        if character and (character:FindFirstChild("Knife") or player.Backpack:FindFirstChild("Knife")) then
+            return player
+        end
+    end
+    return nil
+end
+
+local function GetPredictedPosition(target)
+    local character = target.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not root or not humanoid then return nil end
+    
+    return root.Position + (root.AssemblyLinearVelocity * Vector3.new(0.75, 0.5, 0.75)) * (Offset / 15) + (humanoid.MoveDirection * Offset)
+end
+
+local function EquipGun(character)
+    if character:FindFirstChild("Gun") then return true end
+    
+    local gun = LocalPlayer.Backpack:FindFirstChild("Gun")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if gun and humanoid then
+        humanoid:EquipTool(gun)
+        task.wait(0.1)
+        return true
+    end
+    
+    return false
+end
+
+local function Fire(gun, origin, targetPosition)
+    local shootRemote = gun:FindFirstChild("Shoot") or (gun:FindFirstChild("Events") and gun.Events:FindFirstChild("Shoot"))
+    if shootRemote then
+        shootRemote:FireServer(CFrame.new(origin), CFrame.new(targetPosition))
+        return
+    end
+    
+    local knifeLocal = gun:FindFirstChild("KnifeLocal")
+    local createBeam = knifeLocal and knifeLocal:FindFirstChild("CreateBeam")
+    if createBeam then
+        createBeam:InvokeServer(1, targetPosition, "AH2")
+    end
+end
+
+local function AttemptShoot()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local murderer = GetMurderer()
+    if not murderer then return end
+    
+    local targetRoot = murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    task.spawn(function()
+        if not EquipGun(character) then return end
+        
+        local gun = character:FindFirstChild("Gun")
+        local rightHand = character:FindFirstChild("RightHand")
+        if not gun or not rightHand then return end
+        
+        local predicted = GetPredictedPosition(murderer) or targetRoot.Position
+        Fire(gun, rightHand.Position, predicted)
+    end)
+end
+
+-- =============================================
+-- ========== AURA FUNCTIONS ==========
+-- =============================================
+
+local function updateAuraColor()
+    auraColor = Color3.fromRGB(auraColorValues.R, auraColorValues.G, auraColorValues.B)
+    if auraActive then
+        applyAura()
+    end
+end
+
+local function clearAura()
+    for _, particle in ipairs(auraParticles) do
+        pcall(function() particle:Destroy() end)
+    end
+    auraParticles = {}
+end
+
+local function loadAura(name)
+    if auraCache[name] then return auraCache[name] end
+    local id = aura_ids[name]
+    if not id then return nil end
+    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
+    if success and result and result[1] then
+        auraCache[name] = result[1]
+        return result[1]
+    end
+    return nil
+end
+
+local function colorAura(model, color)
+    local seq = ColorSequence.new(color)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("PointLight") then
+            descendant.Color = color
+        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
+            descendant.Color = seq
+        end
+    end
+end
+
+local function applyAura()
+    clearAura()
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local real_char = char
+    if char.Parent ~= workspace then
+        real_char = nil
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name == LocalPlayer.Name then
+                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp:IsA("BasePart") then
+                        real_char = obj
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    if not real_char then return end
+    
+    for _, name in ipairs(aura_order) do
+        if auraSelected[name] then
+            local aura_model = loadAura(name)
+            if aura_model then
+                colorAura(aura_model, auraColor)
+                local cloned = aura_model:Clone()
+                for _, part in ipairs(cloned:GetChildren()) do
+                    local target = real_char:FindFirstChild(part.Name)
+                    if target and target:IsA("BasePart") then
+                        for _, child in ipairs(part:GetChildren()) do
+                            child.Parent = target
+                            table.insert(auraParticles, child)
+                        end
+                    end
+                end
+                cloned:Destroy()
+            end
+        end
+    end
+end
+
+-- =============================================
+-- ========== BHOP (ИСПРАВЛЕН ДЛЯ ТЕЛЕФОНОВ) ==========
+-- =============================================
+
+local function StartBhop()
+    if bhopConnection then
+        bhopConnection:Disconnect()
+        bhopConnection = nil
+    end
+    
+    if bhopJumpRequestConnection then
+        bhopJumpRequestConnection:Disconnect()
+        bhopJumpRequestConnection = nil
+    end
+    
+    bhopJumpPressed = false
+    
+    bhopJumpRequestConnection = UserInputService.JumpRequest:Connect(function()
+        if bhopActive then
+            bhopJumpPressed = true
+        end
+    end)
+    
+    bhopConnection = RunService.Heartbeat:Connect(function()
+        if not bhopActive then return end
+        if not LocalPlayer.Character then return end
+        
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return end
+        
+        local jumpPressed = bhopJumpPressed or UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        
+        if bhopJumpPressed then
+            bhopJumpPressed = false
+        end
+        
+        if hum.FloorMaterial ~= Enum.Material.Air then
+            if jumpPressed then
+                local now = tick()
+                if now - bhopLastJump > 0.08 then
+                    bhopLastJump = now
+                    
+                    local moveDir = hum.MoveDirection
+                    if moveDir.Magnitude > 0 then
+                        local boost = moveDir.Unit * bhopSpeed
+                        hrp.Velocity = Vector3.new(boost.X, hum.JumpPower * 1.2, boost.Z)
+                    else
+                        hrp.Velocity = Vector3.new(hrp.Velocity.X, hum.JumpPower * 1.2, hrp.Velocity.Z)
+                    end
+                    
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+        else
+            if jumpPressed then
+                local vel = hrp.Velocity
+                local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
+                if horizontalVel.Magnitude < bhopSpeed then
+                    local moveDir = hum.MoveDirection
+                    if moveDir.Magnitude > 0 then
+                        local airControl = moveDir.Unit * 2
+                        hrp.Velocity = vel + Vector3.new(airControl.X, 0, airControl.Z)
+                    end
+                end
+            end
+        end
+    end)
+    notify("Bhop", "Enabled")
+end
+
+local function StopBhop()
+    if bhopConnection then
+        bhopConnection:Disconnect()
+        bhopConnection = nil
+    end
+    if bhopJumpRequestConnection then
+        bhopJumpRequestConnection:Disconnect()
+        bhopJumpRequestConnection = nil
+    end
+    bhopJumpPressed = false
+    notify("Bhop", "Disabled")
+end
+
+-- =============================================
+-- ========== SPIN ==========
+-- =============================================
+
+local function ApplySpin(speed)
+    if spinInstance then
+        spinInstance:Destroy()
+        spinInstance = nil
+    end
+    
+    if speed == 0 then
+        spinActive = false
+        notify("Spin", "Disabled")
+        return
+    end
+    
+    spinActive = true
+    spinSpeed = speed
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    for _, v in pairs(root:GetChildren()) do
+        if v.Name == "Spinning" then
+            v:Destroy()
+        end
+    end
+    
+    spinInstance = Instance.new("BodyAngularVelocity")
+    spinInstance.Name = "Spinning"
+    spinInstance.Parent = root
+    spinInstance.MaxTorque = Vector3.new(0, math.huge, 0)
+    spinInstance.AngularVelocity = Vector3.new(0, speed, 0)
+    notify("Spin", "Speed: " .. speed)
+end
+
+-- =============================================
+-- ========== FLY ==========
+-- =============================================
+
+local function getRoot(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+end
+
+local function StartFly()
+    if flyActive then 
+        StopFly()
+        task.wait(0.1)
+    end
+    
+    flyActive = true
+    flying = true
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    local root = getRoot(char)
+    if not root then return end
+    
+    local CONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+    local lCONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+    local SPEED = 0
+    
+    local bg = Instance.new("BodyGyro")
+    local bv = Instance.new("BodyVelocity")
+    
+    bg.P = 9e4
+    bg.Parent = root
+    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.CFrame = root.CFrame
+    
+    bv.Parent = root
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    
+    task.spawn(function()
+        while flying and flyActive do
+            task.wait()
+            local cam = workspace.CurrentCamera
+            
+            if humanoid then
+                humanoid.PlatformStand = true
+            end
+            
+            if CONTROL.L + CONTROL.R ~= 0 or CONTROL.F + CONTROL.B ~= 0 or CONTROL.Q + CONTROL.E ~= 0 then
+                SPEED = flySpeed
+            elseif not (CONTROL.L + CONTROL.R ~= 0 or CONTROL.F + CONTROL.B ~= 0 or CONTROL.Q + CONTROL.E ~= 0) and SPEED ~= 0 then
+                SPEED = 0
+            end
+            
+            if (CONTROL.L + CONTROL.R) ~= 0 or (CONTROL.F + CONTROL.B) ~= 0 or (CONTROL.Q + CONTROL.E) ~= 0 then
+                bv.Velocity = ((cam.CFrame.LookVector * (CONTROL.F + CONTROL.B)) + 
+                    ((cam.CFrame * CFrame.new(CONTROL.L + CONTROL.R, (CONTROL.F + CONTROL.B + CONTROL.Q + CONTROL.E) * 0.2, 0).p) - cam.CFrame.p)) * SPEED
+                lCONTROL = {F = CONTROL.F, B = CONTROL.B, L = CONTROL.L, R = CONTROL.R}
+            elseif (CONTROL.L + CONTROL.R) == 0 and (CONTROL.F + CONTROL.B) == 0 and (CONTROL.Q + CONTROL.E) == 0 and SPEED ~= 0 then
+                bv.Velocity = ((cam.CFrame.LookVector * (lCONTROL.F + lCONTROL.B)) + 
+                    ((cam.CFrame * CFrame.new(lCONTROL.L + lCONTROL.R, (lCONTROL.F + lCONTROL.B + CONTROL.Q + CONTROL.E) * 0.2, 0).p) - cam.CFrame.p)) * SPEED
+            else
+                bv.Velocity = Vector3.new(0, 0, 0)
+            end
+            
+            bg.CFrame = cam.CFrame
+            pcall(function() cam.CameraType = Enum.CameraType.Track end)
+        end
+        
+        if bg then bg:Destroy() end
+        if bv then bv:Destroy() end
+        if humanoid then humanoid.PlatformStand = false end
+    end)
+    
+    if flyKeyDown then flyKeyDown:Disconnect() end
+    if flyKeyUp then flyKeyUp:Disconnect() end
+    
+    flyKeyDown = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if not flyActive then return end
+        
+        if input.KeyCode == Enum.KeyCode.W then
+            CONTROL.F = flySpeed
+        elseif input.KeyCode == Enum.KeyCode.S then
+            CONTROL.B = -flySpeed
+        elseif input.KeyCode == Enum.KeyCode.A then
+            CONTROL.L = -flySpeed
+        elseif input.KeyCode == Enum.KeyCode.D then
+            CONTROL.R = flySpeed
+        elseif input.KeyCode == Enum.KeyCode.E then
+            CONTROL.Q = flySpeed * 2
+        elseif input.KeyCode == Enum.KeyCode.Q then
+            CONTROL.E = -flySpeed * 2
+        end
+    end)
+    
+    flyKeyUp = UserInputService.InputEnded:Connect(function(input, processed)
+        if processed then return end
+        if not flyActive then return end
+        
+        if input.KeyCode == Enum.KeyCode.W then
+            CONTROL.F = 0
+        elseif input.KeyCode == Enum.KeyCode.S then
+            CONTROL.B = 0
+        elseif input.KeyCode == Enum.KeyCode.A then
+            CONTROL.L = 0
+        elseif input.KeyCode == Enum.KeyCode.D then
+            CONTROL.R = 0
+        elseif input.KeyCode == Enum.KeyCode.E then
+            CONTROL.Q = 0
+        elseif input.KeyCode == Enum.KeyCode.Q then
+            CONTROL.E = 0
+        end
+    end)
+    
+    notify("Fly", "Enabled! WASD - move, Q/E - up/down")
+end
+
+local function StopFly()
+    flyActive = false
+    flying = false
+    
+    if flyKeyDown then 
+        flyKeyDown:Disconnect() 
+        flyKeyDown = nil
+    end
+    if flyKeyUp then 
+        flyKeyUp:Disconnect() 
+        flyKeyUp = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+        end
+    end
+    
+    pcall(function() 
+        if workspace.CurrentCamera then 
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom 
+        end 
+    end)
+    
+    notify("Fly", "Disabled")
+end
+
+-- =============================================
+-- ========== NOCLIP ==========
+-- =============================================
+
+local function StartNoclip()
+    if noclipActive then return end
+    noclipActive = true
+    
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    
+    noclipConnection = RunService.Stepped:Connect(function()
+        if not noclipActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        for _, child in pairs(char:GetDescendants()) do
+            if child:IsA("BasePart") and child.CanCollide == true then
+                child.CanCollide = false
+            end
+        end
+    end)
+    notify("Noclip", "Enabled")
+end
+
+local function StopNoclip()
+    noclipActive = false
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, child in pairs(char:GetDescendants()) do
+            if child:IsA("BasePart") then
+                child.CanCollide = true
+            end
+        end
+    end
+    notify("Noclip", "Disabled")
+end
+
+-- =============================================
+-- ========== INFJUMP ==========
+-- =============================================
+
+local function StartInfJump()
+    if infJumpActive then return end
+    infJumpActive = true
+    
+    if infJumpConnection then
+        infJumpConnection:Disconnect()
+        infJumpConnection = nil
+    end
+    
+    infJumpConnection = UserInputService.JumpRequest:Connect(function()
+        if not infJumpActive then return end
+        if not infJumpDebounce then
+            infJumpDebounce = true
+            local char = LocalPlayer.Character
+            if char then
+                local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+            task.wait(0.05)
+            infJumpDebounce = false
+        end
+    end)
+    notify("InfJump", "Enabled")
+end
+
+local function StopInfJump()
+    infJumpActive = false
+    if infJumpConnection then
+        infJumpConnection:Disconnect()
+        infJumpConnection = nil
+    end
+    infJumpDebounce = false
+    notify("InfJump", "Disabled")
+end
+
+-- =============================================
+-- ========== FPS BOOST ==========
+-- =============================================
+
+local function EnableFPSBoost()
+    if fpsBoostEnabled then return end
+    fpsBoostEnabled = true
+    
+    local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 1
+    end
+    
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.FogStart = 9e9
+    
+    pcall(function()
+        settings().Rendering.QualityLevel = 1
+    end)
+    
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CastShadow = false
+            v.Material = "Plastic"
+            v.Reflectance = 0
+        elseif v:IsA("Decal") then
+            v.Transparency = 1
+            v.Texture = ""
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Lifetime = NumberRange.new(0)
+        end
+    end
+    
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") then
+            v.Enabled = false
+        end
+    end
+    
+    if fpsBoostDescendantConnection then
+        fpsBoostDescendantConnection:Disconnect()
+    end
+    
+    fpsBoostDescendantConnection = workspace.DescendantAdded:Connect(function(child)
+        task.spawn(function()
+            if child:IsA("ForceField") or child:IsA("Sparkles") or child:IsA("Smoke") or child:IsA("Fire") or child:IsA("Beam") then
+                RunService.Heartbeat:Wait()
+                child:Destroy()
+            elseif child:IsA("BasePart") then
+                child.CastShadow = false
+            end
+        end)
+    end)
+    notify("FPS Boost", "Enabled")
+end
+
+local function DisableFPSBoost()
+    if not fpsBoostEnabled then return end
+    fpsBoostEnabled = false
+    
+    if fpsBoostDescendantConnection then
+        fpsBoostDescendantConnection:Disconnect()
+        fpsBoostDescendantConnection = nil
+    end
+    
+    local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
+    if Terrain then
+        Terrain.WaterWaveSize = 1
+        Terrain.WaterWaveSpeed = 1
+        Terrain.WaterReflectance = 0.5
+        Terrain.WaterTransparency = 0.8
+    end
+    
+    Lighting.GlobalShadows = true
+    Lighting.FogEnd = 100000
+    Lighting.FogStart = 0
+    
+    pcall(function()
+        settings().Rendering.QualityLevel = 10
+    end)
+    notify("FPS Boost", "Disabled")
+end
+
+-- =============================================
+-- ========== SHADERS ==========
+-- =============================================
+
+local function ApplyShader(theme)
+    if shaderLoop then
+        shaderLoop:Disconnect()
+        shaderLoop = nil
+    end
+    
+    shaderType = theme
+    
+    if theme == "Evening" then
+        Lighting.ClockTime = 18
+        Lighting.Brightness = 0.8
+        Lighting.Ambient = Color3.fromRGB(255, 180, 100)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 150, 80)
+        Lighting.FogEnd = 3000
+        Lighting.FogStart = 100
+        Lighting.FogColor = Color3.fromRGB(255, 180, 120)
+        Lighting.GlobalShadows = true
+        Lighting.Bloom = 0.3
+        notify("Shader", "Evening mode")
+    elseif theme == "Night" then
+        Lighting.ClockTime = 0
+        Lighting.Brightness = 0.15
+        Lighting.Ambient = Color3.fromRGB(20, 20, 50)
+        Lighting.OutdoorAmbient = Color3.fromRGB(15, 15, 45)
+        Lighting.FogEnd = 800
+        Lighting.FogStart = 30
+        Lighting.FogColor = Color3.fromRGB(10, 10, 30)
+        Lighting.GlobalShadows = true
+        Lighting.Bloom = 0.1
+        notify("Shader", "Night mode")
+    elseif theme == "None" then
+        Lighting.ClockTime = 14
+        Lighting.Brightness = 1
+        Lighting.Ambient = Color3.fromRGB(127, 127, 127)
+        Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+        Lighting.FogColor = Color3.fromRGB(127, 127, 127)
+        Lighting.GlobalShadows = false
+        Lighting.Bloom = 0
+        notify("Shader", "Disabled")
+    end
+end
+
+local function StartShaderLoop()
+    if shaderLoop then shaderLoop:Disconnect() end
+    shaderLoop = RunService.Heartbeat:Connect(function()
+        if shaderType == "Evening" then
+            if Lighting.ClockTime ~= 18 then Lighting.ClockTime = 18 end
+        elseif shaderType == "Night" then
+            if Lighting.ClockTime ~= 0 then Lighting.ClockTime = 0 end
+        end
+    end)
+end
+
+-- =============================================
+-- ========== ESP ==========
+-- =============================================
+
+local function applyESP(player)
+    if player == LocalPlayer then return end
+    
+    local function setupHighlight(character)
+        if not ESP_Enabled then return end
+        if Highlights[player] then Highlights[player]:Destroy() end
+        
+        local Highlight = Instance.new("Highlight")
+        Highlight.Parent = character
+        Highlight.Adornee = character
+        Highlight.FillTransparency = 0.5
+        Highlight.OutlineTransparency = 0.1
+        
+        Highlights[player] = Highlight
+        
+        task.spawn(function()
+            while character and character.Parent and ESP_Enabled do
+                local role = getPlayerRole(player)
+                if role == "Murderer" then
+                    Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                    Highlight.OutlineColor = Color3.fromRGB(255, 50, 50)
+                elseif role == "Sheriff" then
+                    Highlight.FillColor = Color3.fromRGB(0, 0, 255)
+                    Highlight.OutlineColor = Color3.fromRGB(50, 50, 255)
+                else
+                    Highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                    Highlight.OutlineColor = Color3.fromRGB(50, 255, 50)
+                end
+                task.wait(1)
+            end
+        end)
+    end
+    
+    if player.Character then
+        setupHighlight(player.Character)
+    end
+    
+    player.CharacterAdded:Connect(function(char)
+        if ESP_Enabled then
+            task.wait(0.5)
+            setupHighlight(char)
+        end
+    end)
+end
+
+local function removeESP()
+    for player, highlight in pairs(Highlights) do
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+    table.clear(Highlights)
+end
+
+-- =============================================
+-- ========== GUN ESP ==========
+-- =============================================
+
+local function updateGunESP()
+    for _, obj in pairs(gunEspObjects) do
+        pcall(function() obj:Destroy() end)
+    end
+    gunEspObjects = {}
+
+    if not gunEspEnabled then return end
+
+    local gunDrop = workspace:FindFirstChild("GunDrop", true)
+    if gunDrop then
+        local box = Instance.new("BoxHandleAdornment")
+        box.Name = "GunESP_Box"
+        box.Adornee = gunDrop
+        box.AlwaysOnTop = true
+        box.Color3 = Color3.fromRGB(255, 255, 255)
+        box.Size = gunDrop.Size or Vector3.new(2, 2, 2)
+        box.Transparency = 0.5
+        box.ZIndex = 0
+        box.Parent = LocalPlayer:FindFirstChild("PlayerGui")
+        table.insert(gunEspObjects, box)
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "GunESP_Text"
+        billboard.Adornee = gunDrop
+        billboard.Size = UDim2.fromOffset(60, 20)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        billboard.AlwaysOnTop = true
+        billboard.MaxDistance = 600
+        billboard.Parent = LocalPlayer:FindFirstChild("PlayerGui")
+
+        local label = Instance.new("TextLabel")
+        label.Text = "GUN"
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.BackgroundTransparency = 1
+        label.TextStrokeTransparency = 0.3
+        label.Size = UDim2.fromScale(1, 1)
+        label.Parent = billboard
+
+        table.insert(gunEspObjects, billboard)
+    end
+end
+
+-- =============================================
+-- ========== TELEPORT FUNCTIONS ==========
+-- =============================================
+
+local function TeleportToPlayer(targetPlayer)
+    if not targetPlayer or targetPlayer == LocalPlayer then return end
+    local char = targetPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    myRoot.CFrame = root.CFrame * CFrame.new(0, 2, 0)
+    notify("Teleport", "Teleported to " .. targetPlayer.Name)
+end
+
+local function GetRolePlayers(role)
+    local result = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        local char = plr.Character
+        if not char then continue end
+        
+        local function hasWeapon(weaponType)
+            for _, tool in pairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local name = tool.Name:lower()
+                    if weaponType == "murderer" and (string.find(name, "knife") or string.find(name, "dagger") or string.find(name, "нож")) then
+                        return true
+                    elseif weaponType == "sheriff" and (string.find(name, "gun") or string.find(name, "revolver") or string.find(name, "pistol") or string.find(name, "пистолет")) then
+                        return true
+                    end
+                end
+            end
+            local backpack = plr:FindFirstChild("Backpack")
+            if backpack then
+                for _, tool in pairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local name = tool.Name:lower()
+                        if weaponType == "murderer" and (string.find(name, "knife") or string.find(name, "dagger") or string.find(name, "нож")) then
+                            return true
+                        elseif weaponType == "sheriff" and (string.find(name, "gun") or string.find(name, "revolver") or string.find(name, "pistol") or string.find(name, "пистолет")) then
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end
+        
+        if role == "murderer" and hasWeapon("murderer") then
+            table.insert(result, plr)
+        elseif role == "sheriff" and hasWeapon("sheriff") then
+            table.insert(result, plr)
+        end
+    end
+    return result
+end
+
+local function StealthGrabGun()
+    local gunDrop = workspace:FindFirstChild("GunDrop", true)
+    if gunDrop and (gunDrop:IsA("BasePart") or gunDrop:FindFirstChild("Handle")) then
+        local character = LocalPlayer.Character
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            local originalCFrame = rootPart.CFrame
+            local targetPart = gunDrop:FindFirstChild("Handle") or gunDrop
+            rootPart.CFrame = targetPart.CFrame
+            task.wait(0.05)
+            rootPart.CFrame = originalCFrame
+            notify("Gun", "Gun picked up successfully!")
+        end
+    end
+end
+
+-- =============================================
+-- ========== JERK ==========
+-- =============================================
+
+local function StartJerk()
+    if jerkActive then
+        StopJerk()
+        task.wait(0.1)
+    end
+    
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    local backpack = LocalPlayer:FindFirstChildWhichIsA("Backpack")
+    
+    if not char or not humanoid or not backpack then
+        notify("Jerk", "Character or inventory not found!")
+        return
+    end
+    
+    jerkActive = true
+    jerkJorking = false
+    
+    jerkTool = Instance.new("Tool")
+    jerkTool.Name = "Jerk"
+    jerkTool.RequiresHandle = false
+    jerkTool.Parent = backpack
+    
+    local function stopJorking()
+        jerkJorking = false
+        if jerkTrack then
+            jerkTrack:Stop()
+            jerkTrack = nil
+        end
+    end
+    
+    jerkTool.Equipped:Connect(function()
+        jerkJorking = true
+    end)
+    
+    jerkTool.Unequipped:Connect(stopJorking)
+    
+    humanoid.Died:Connect(function()
+        if jerkActive then
+            StopJerk()
+        end
+    end)
+    
+    task.spawn(function()
+        while jerkActive and jerkTool and jerkTool.Parent do
+            if jerkJorking then
+                local isR15 = false
+                if char then
+                    local hum = char:FindFirstChildWhichIsA("Humanoid")
+                    if hum and hum.RigType == Enum.HumanoidRigType.R15 then
+                        isR15 = true
+                    end
+                end
+                
+                if not jerkTrack then
+                    local anim = Instance.new("Animation")
+                    anim.AnimationId = not isR15 and "rbxassetid://72042024" or "rbxassetid://698251653"
+                    jerkTrack = humanoid:LoadAnimation(anim)
+                end
+                
+                jerkTrack:Play()
+                jerkTrack:AdjustSpeed(isR15 and 0.7 or 0.65)
+                jerkTrack.TimePosition = 0.6
+                task.wait(0.1)
+                
+                while jerkTrack and jerkTrack.TimePosition < (not isR15 and 0.65 or 0.7) do
+                    task.wait(0.05)
+                    if not jerkActive or not jerkJorking then break end
+                end
+                
+                if jerkTrack then
+                    jerkTrack:Stop()
+                    jerkTrack = nil
+                end
+            end
+            task.wait(0.05)
+        end
+    end)
+    
+    notify("Jerk", "Activated! Use the tool in your inventory.")
+end
+
+local function StopJerk()
+    jerkActive = false
+    jerkJorking = false
+    
+    if jerkTool then
+        jerkTool:Destroy()
+        jerkTool = nil
+    end
+    
+    if jerkTrack then
+        jerkTrack:Stop()
+        jerkTrack = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                if track.Animation and track.Animation.AnimationId and 
+                   (string.find(track.Animation.AnimationId, "72042024") or 
+                    string.find(track.Animation.AnimationId, "698251653")) then
+                    track:Stop()
+                end
+            end
+        end
+    end
+    
+    notify("Jerk", "Disabled")
+end
+
+-- =============================================
+-- ========== BANG ==========
+-- =============================================
+
+local function StartBang(targetName)
+    if bangActive then
+        StopBang()
+        task.wait(0.1)
+    end
+    
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    
+    if not char or not humanoid then
+        notify("Bang", "Character not found!")
+        return
+    end
+    
+    local targetPlayer = nil
+    if targetName and targetName ~= "" then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and string.lower(p.Name) == string.lower(targetName) then
+                targetPlayer = p
+                break
+            end
+        end
+        if not targetPlayer then
+            notify("Bang", "Player " .. targetName .. " not found!")
+            return
+        end
+    else
+        notify("Bang", "Enter a player name!")
+        return
+    end
+    
+    bangActive = true
+    bangTarget = targetPlayer
+    
+    local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+    bangAnim = Instance.new("Animation")
+    bangAnim.AnimationId = not isR15 and "rbxassetid://148840371" or "rbxassetid://5918726674"
+    bangTrack = humanoid:LoadAnimation(bangAnim)
+    bangTrack:Play(0.1, 1, 1)
+    bangTrack:AdjustSpeed(3)
+    
+    bangDiedConnection = humanoid.Died:Connect(function()
+        StopBang()
+    end)
+    
+    bangSeatConnection = humanoid.Seated:Connect(function(value)
+        if value then
+            StopBang()
+        end
+    end)
+    
+    task.spawn(function()
+        local bangOffset = CFrame.new(0, 0, 1.1)
+        while bangActive and bangTarget and bangTarget.Character do
+            pcall(function()
+                local targetRoot = bangTarget.Character:FindFirstChild("HumanoidRootPart") or 
+                                  bangTarget.Character:FindFirstChild("Torso") or 
+                                  bangTarget.Character:FindFirstChild("UpperTorso")
+                local myRoot = char:FindFirstChild("HumanoidRootPart") or 
+                              char:FindFirstChild("Torso") or 
+                              char:FindFirstChild("UpperTorso")
+                if targetRoot and myRoot then
+                    myRoot.CFrame = targetRoot.CFrame * bangOffset
+                end
+            end)
+            task.wait(0.05)
+        end
+    end)
+    
+    notify("Bang", "On " .. targetPlayer.Name .. " activated!")
+end
+
+local function StopBang()
+    bangActive = false
+    
+    if bangTrack then
+        bangTrack:Stop()
+        bangTrack = nil
+    end
+    
+    if bangAnim then
+        bangAnim:Destroy()
+        bangAnim = nil
+    end
+    
+    if bangDiedConnection then
+        bangDiedConnection:Disconnect()
+        bangDiedConnection = nil
+    end
+    
+    if bangSeatConnection then
+        bangSeatConnection:Disconnect()
+        bangSeatConnection = nil
+    end
+    
+    bangTarget = nil
+    
+    notify("Bang", "Disabled")
+end
+
+-- =============================================
+-- ========== АВТОФАРМ ФУНКЦИИ ==========
+-- =============================================
+
+local function GetCoinContainer()
+    for _, v in workspace:GetDescendants() do
+        if v.Name == "CoinContainer" and v:IsA("Folder") then
+            local parent = v.Parent
+            if parent and parent.Name ~= "Lobby" then
+                return v
+            end
+        end
+    end
+    for _, v in workspace:GetDescendants() do
+        if v.Name == "Spawns" and v.Parent and v.Parent.Name ~= "Lobby" then
+            local container = v.Parent:FindFirstChild("CoinContainer")
+            if container then
+                return container
+            end
+        end
+    end
+    return nil
+end
+
+local function IsCoinBagFull()
+    local mainGui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    if not mainGui then return false end
+    local gameGui = mainGui:FindFirstChild("Game")
+    if not gameGui then return false end
+    local coinBags = gameGui:FindFirstChild("CoinBags")
+    if not coinBags then return false end
+    local container = coinBags:FindFirstChild("Container")
+    if not container then return false end
+    local snowToken = container:FindFirstChild("SnowToken")
+    if not snowToken then return false end
+    local currencyFrame = snowToken:FindFirstChild("CurrencyFrame")
+    if not currencyFrame then return false end
+    local icon = currencyFrame:FindFirstChild("Icon")
+    if not icon then return false end
+    local coins = icon:FindFirstChild("Coins")
+    if not coins then return false end
+    local price = LocalPlayer:GetAttribute("Elite") and "50" or "40"
+    return coins.Text == price
+end
+
+local function IsRoundActive()
+    local mainGui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
+    if not mainGui then return false end
+    local gameGui = mainGui:FindFirstChild("Game")
+    if not gameGui then return false end
+    local timer = gameGui:FindFirstChild("Timer")
+    if timer then
+        return timer.Visible == true
+    end
+    return false
+end
+
+local function FindAllCoins()
+    local coins = {}
+    if CoinContainer then
+        for _, desc in ipairs(CoinContainer:GetDescendants()) do
+            if desc:IsA("TouchTransmitter") then
+                local coin = desc.Parent
+                if coin and not TouchedCoins[coin] then
+                    table.insert(coins, coin)
+                end
+            end
+        end
+    end
+    return coins
+end
+
+local function FindNearestCoin()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local coins = FindAllCoins()
+    if #coins == 0 then return nil end
+    local nearest = nil
+    local nearestDist = math.huge
+    for _, coin in ipairs(coins) do
+        local dist = (coin.Position - hrp.Position).Magnitude
+        if dist < nearestDist and dist < Radius then
+            nearestDist = dist
+            nearest = coin
+        end
+    end
+    return nearest
+end
+
+local function MoveToPosition(targetPos)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local distance = (targetPos - hrp.Position).Magnitude
+    if distance < 2 then return end
+    local duration = math.min(distance / WalkSpeed, 3)
+    local startPos = hrp.Position
+    local startTime = tick()
+    while Farm_Enabled and hrp and hrp.Parent do
+        local elapsed = tick() - startTime
+        local alpha = math.min(elapsed / duration, 1)
+        pcall(function()
+            hrp.CFrame = CFrame.new(startPos:Lerp(targetPos, alpha))
+        end)
+        if alpha >= 1 then
+            task.wait(0.15)
+            break
+        end
+        task.wait()
+    end
+end
+
+local function DoReset()
+    if IsResetting then return end
+    IsResetting = true
+    notify("🔄 Респавн", "Прошло " .. ResetTimer .. " секунд!", 2)
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.Health = 0
+    end
+    LocalPlayer.CharacterAdded:Wait()
+    task.wait(1.5)
+    table.clear(TouchedCoins)
+    CoinContainer = nil
+    IsResetting = false
+    RoundStartTime = tick()
+    notify("✅ Готово", "Продолжаю фарм!", 2)
+end
+
+local function ResetCharacter()
+    if IsResetting then return end
+    IsResetting = true
+    notify("🔄 Респавн", "Мешок полон!", 2)
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.Health = 0
+    end
+    LocalPlayer.CharacterAdded:Wait()
+    task.wait(1.5)
+    table.clear(TouchedCoins)
+    CoinContainer = nil
+    notify("⏳ Ожидание", "Жду новый раунд...", 2)
+    while Farm_Enabled do
+        if IsRoundActive() then
+            CoinContainer = GetCoinContainer()
+            if CoinContainer then
+                notify("✅ Новый раунд!", "Продолжаю фарм!", 2)
+                RoundStartTime = tick()
+            end
+            break
+        end
+        task.wait(1)
+    end
+    IsResetting = false
+end
+
+local function UpdateTimer()
+    while Farm_Enabled and IsFarming do
+        local roundActive = IsRoundActive()
+        
+        if roundActive then
+            if not RoundActive then
+                RoundActive = true
+                RoundStartTime = tick()
+                notify("⏱ Таймер", "Раунд начался! Ресет через 1:10", 2)
+            end
+            
+            local elapsed = tick() - RoundStartTime
+            local remaining = math.max(0, ResetTimer - elapsed)
+            
+            if remaining > 0 then
+                local minutes = math.floor(remaining / 60)
+                local seconds = math.floor(remaining % 60)
+            else
+                DoReset()
+                RoundStartTime = tick()
+                RoundActive = true
+            end
+        else
+            RoundActive = false
+        end
+        task.wait(0.5)
+    end
+    RoundActive = false
+end
+
+local function CollectCoins()
+    CoinContainer = GetCoinContainer()
+    if not CoinContainer then
+        notify("Ошибка", "CoinContainer не найден!", 3)
+        IsFarming = false
+        Farm_Enabled = false
+        return
+    end
+    notify("Автофарм", "Запущен!", 2)
+    RoundStartTime = tick()
+    RoundActive = false
+    
+    if TimerThread then
+        coroutine.close(TimerThread)
+        TimerThread = nil
+    end
+    TimerThread = coroutine.create(UpdateTimer)
+    coroutine.resume(TimerThread)
+    
+    if characterAddedConnection then
+        characterAddedConnection:Disconnect()
+    end
+    
+    characterAddedConnection = LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.3)
+        if Farm_Enabled then
+            CoinContainer = GetCoinContainer()
+            table.clear(TouchedCoins)
+            RoundStartTime = tick()
+            RoundActive = false
+            notify("🔄 Перезапуск", "Персонаж загружен!", 2)
+        end
+    end)
+    
+    while Farm_Enabled do
+        local char = LocalPlayer.Character
+        if not char or not char.Parent then
+            task.wait(0.5)
+            continue
+        end
+        
+        if IsCoinBagFull() then
+            ResetCharacter()
+            if not Farm_Enabled then break end
+            CoinContainer = GetCoinContainer()
+            table.clear(TouchedCoins)
+            RoundStartTime = tick()
+            RoundActive = false
+            if not CoinContainer then
+                task.wait(2)
+                continue
+            end
+        end
+        
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp or not hrp.Parent then
+            task.wait(1)
+            continue
+        end
+        
+        local coin = FindNearestCoin()
+        if coin then
+            MoveToPosition(coin.Position)
+            TouchedCoins[coin] = true
+            task.wait(0.15)
+        else
+            task.wait(0.5)
+            if not CoinContainer or not CoinContainer.Parent then
+                CoinContainer = GetCoinContainer()
+            end
+        end
+    end
+    
+    if characterAddedConnection then
+        characterAddedConnection:Disconnect()
+        characterAddedConnection = nil
+    end
+    if TimerThread then
+        coroutine.close(TimerThread)
+        TimerThread = nil
+    end
+    table.clear(TouchedCoins)
+    IsFarming = false
+    RoundActive = false
+    notify("Автофарм", "Остановлен!", 2)
+end
+
+local function StartFarm()
+    if IsFarming then return end
+    CoinContainer = GetCoinContainer()
+    if not CoinContainer then
+        notify("Ошибка", "CoinContainer не найден!", 3)
+        return
+    end
+    IsFarming = true
+    Farm_Enabled = true
+    table.clear(TouchedCoins)
+    IsResetting = false
+    RoundStartTime = tick()
+    RoundActive = false
+    FarmThread = coroutine.create(CollectCoins)
+    coroutine.resume(FarmThread)
+end
+
+local function StopFarm()
+    Farm_Enabled = false
+    IsFarming = false
+    if FarmThread then
+        coroutine.close(FarmThread)
+        FarmThread = nil
+    end
+    if characterAddedConnection then
+        characterAddedConnection:Disconnect()
+        characterAddedConnection = nil
+    end
+    if TimerThread then
+        coroutine.close(TimerThread)
+        TimerThread = nil
+    end
+    table.clear(TouchedCoins)
+    IsResetting = false
+    RoundActive = false
+    notify("Автофарм", "Остановлен!", 2)
+end
+
+-- =============================================
+-- ========== СОЗДАНИЕ GUI ==========
+-- =============================================
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "KITI_RBB"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local success, err = pcall(function()
+    ScreenGui.Parent = game:GetService("CoreGui")
+end)
+if not success then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- =============================================
+-- ========== MAIN FRAME ==========
+-- =============================================
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 550, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -275, 0.5, -200)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+MainFrame.ClipsDescendants = true
+MainFrame.Visible = true
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(45, 45, 45)
+MainStroke.Thickness = 1.5
+MainStroke.Parent = MainFrame
+
+-- =============================================
+-- ========== КНОПКА KITI ==========
+-- =============================================
+
+local KITIButton = Instance.new("TextButton")
+KITIButton.Name = "KITIButton"
+KITIButton.Size = UDim2.new(0, 50, 0, 50)
+KITIButton.Position = UDim2.new(0, 10, 0, 10)
+KITIButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+KITIButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+KITIButton.Text = "KITI"
+KITIButton.TextSize = 14
+KITIButton.Font = Enum.Font.GothamBold
+KITIButton.BorderSizePixel = 0
+KITIButton.Parent = ScreenGui
+KITIButton.ZIndex = 20
+
+local KITICorner = Instance.new("UICorner")
+KITICorner.CornerRadius = UDim.new(1, 0)
+KITICorner.Parent = KITIButton
+
+local KITIStroke = Instance.new("UIStroke")
+KITIStroke.Color = Color3.fromRGB(200, 200, 200)
+KITIStroke.Thickness = 1
+KITIStroke.Parent = KITIButton
+
+local menuVisible = true
+
+KITIButton.MouseButton1Click:Connect(function()
+    menuVisible = not menuVisible
+    MainFrame.Visible = menuVisible
+end)
+
+KITIButton.TouchTap:Connect(function()
+    menuVisible = not menuVisible
+    MainFrame.Visible = menuVisible
+end)
+
+-- Перетаскивание кнопки
+local isDraggingKITI = false
+local dragStartKITI = nil
+local startPosKITI = nil
+
+KITIButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingKITI = true
+        dragStartKITI = input.Position
+        startPosKITI = KITIButton.Position
+    end
+end)
+
+KITIButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingKITI = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isDraggingKITI and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartKITI
+        local newX = startPosKITI.X.Offset + delta.X
+        local newY = startPosKITI.Y.Offset + delta.Y
+        
+        local screenSize = Camera.ViewportSize
+        local buttonSize = 50
+        newX = math.clamp(newX, 0, screenSize.X - buttonSize)
+        newY = math.clamp(newY, 0, screenSize.Y - buttonSize)
+        
+        KITIButton.Position = UDim2.new(0, newX, 0, newY)
+    end
+end)
+
+-- =============================================
+-- ========== SIDEBAR ==========
+-- =============================================
+
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Size = UDim2.new(0, 150, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = MainFrame
+
+local SidebarCorner = Instance.new("UICorner")
+SidebarCorner.CornerRadius = UDim.new(0, 10)
+SidebarCorner.Parent = Sidebar
+
+local SidebarCover = Instance.new("Frame")
+SidebarCover.Size = UDim2.new(0, 10, 1, 0)
+SidebarCover.Position = UDim2.new(1, -10, 0, 0)
+SidebarCover.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+SidebarCover.BorderSizePixel = 0
+SidebarCover.Parent = Sidebar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "KITI_RBB"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+Title.Parent = Sidebar
+
+-- =============================================
+-- ========== PAGES CONTAINER ==========
+-- =============================================
+
+local PagesContainer = Instance.new("Frame")
+PagesContainer.Name = "PagesContainer"
+PagesContainer.Size = UDim2.new(1, -160, 1, -10)
+PagesContainer.Position = UDim2.new(0, 155, 0, 5)
+PagesContainer.BackgroundTransparency = 1
+PagesContainer.Parent = MainFrame
+PagesContainer.ClipsDescendants = true
+
+-- Create Pages with Scrolling
+local Pages = {}
+local function createPage(name)
+    local ScrollFrame = Instance.new("ScrollingFrame")
+    ScrollFrame.Name = name .. "Scroll"
+    ScrollFrame.Size = UDim2.new(1, 0, 1, 0)
+    ScrollFrame.BackgroundTransparency = 1
+    ScrollFrame.BorderSizePixel = 0
+    ScrollFrame.ScrollBarThickness = 4
+    ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 60)
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ScrollFrame.Visible = false
+    ScrollFrame.Parent = PagesContainer
+    
+    local Page = Instance.new("Frame")
+    Page.Name = name .. "Page"
+    Page.Size = UDim2.new(1, 0, 0, 0)
+    Page.BackgroundTransparency = 1
+    Page.Parent = ScrollFrame
+    
+    local Layout = Instance.new("UIListLayout")
+    Layout.Padding = UDim.new(0, 8)
+    Layout.SortOrder = Enum.SortOrder.LayoutOrder
+    Layout.Parent = Page
+    
+    Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        Page.Size = UDim2.new(1, 0, 0, Layout.AbsoluteContentSize.Y + 10)
+        ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, Page.Size.Y.Offset + 10)
+    end)
+    
+    Pages[name] = {Scroll = ScrollFrame, Page = Page, Layout = Layout}
+    return Page
+end
+
+local CombatPage = createPage("Combat")
+local VisualPage = createPage("Visual")
+local MovementPage = createPage("Movement")
+local TeleportPage = createPage("Teleport")
+local FunnyPage = createPage("Funny")
+local OtherPage = createPage("Other")
+
+Pages["Combat"].Scroll.Visible = true
+
+-- =============================================
+-- ========== TAB BUTTONS ==========
+-- =============================================
+
+local TabButtons = Instance.new("Frame")
+TabButtons.Size = UDim2.new(1, 0, 1, -60)
+TabButtons.Position = UDim2.new(0, 0, 0, 60)
+TabButtons.BackgroundTransparency = 1
+TabButtons.Parent = Sidebar
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.Padding = UDim.new(0, 5)
+TabListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabListLayout.Parent = TabButtons
+
+local tabNames = {"Combat", "Visual", "Movement", "Teleport", "Funny", "Other"}
+local function addTab(name)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 35)
+    Button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Text = name
+    Button.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Button.TextSize = 13
+    Button.AutoButtonColor = false
+    Button.Parent = TabButtons
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Button
+    
+    Button.MouseButton1Click:Connect(function()
+        for _, pageData in pairs(Pages) do
+            pageData.Scroll.Visible = false
+        end
+        Pages[name].Scroll.Visible = true
+        
+        for _, btn in ipairs(TabButtons:GetChildren()) do
+            if btn:IsA("TextButton") then
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 25), TextColor3 = Color3.fromRGB(200, 200, 200)}):Play()
+            end
+        end
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = Color3.fromRGB(0, 0, 0)}):Play()
+    end)
+end
+
+for _, name in ipairs(tabNames) do
+    addTab(name)
+end
+
+-- =============================================
+-- ========== UI ELEMENT CREATORS ==========
+-- =============================================
+
+local function createButton(parent, text, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(1, -10, 0, 40)
+    Button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 14
+    Button.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Button
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(50, 50, 50)
+    Stroke.Thickness = 1
+    Stroke.Parent = Button
+    
+    Button.MouseButton1Down:Connect(function()
+        pcall(callback)
+    end)
+    return Button
+end
+
+local function createToggle(parent, text, default, callback)
+    local ToggleFrame = Instance.new("Frame")
+    ToggleFrame.Size = UDim2.new(1, -10, 0, 40)
+    ToggleFrame.BackgroundTransparency = 1
+    ToggleFrame.Parent = parent
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.65, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Font = Enum.Font.GothamSemibold
+    Label.Text = text
+    Label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Label.TextSize = 13
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = ToggleFrame
+    
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0, 55, 0, 28)
+    Button.Position = UDim2.new(1, -60, 0.5, -14)
+    Button.BackgroundColor3 = default and Color3.fromRGB(45, 200, 100) or Color3.fromRGB(50, 50, 50)
+    Button.Text = ""
+    Button.Parent = ToggleFrame
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 14)
+    Corner.Parent = Button
+    
+    local InnerCircle = Instance.new("Frame")
+    InnerCircle.Size = UDim2.new(0, 22, 0, 22)
+    InnerCircle.Position = default and UDim2.new(1, -26, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
+    InnerCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    InnerCircle.Parent = Button
+    
+    local InnerCorner = Instance.new("UICorner")
+    InnerCorner.CornerRadius = UDim.new(1, 0)
+    InnerCorner.Parent = InnerCircle
+    
+    local state = default
+    Button.MouseButton1Click:Connect(function()
+        state = not state
+        local targetColor = state and Color3.fromRGB(45, 200, 100) or Color3.fromRGB(50, 50, 50)
+        local targetPos = state and UDim2.new(1, -26, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
+        
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
+        TweenService:Create(InnerCircle, TweenInfo.new(0.2), {Position = targetPos}):Play()
+        
+        pcall(callback, state)
+    end)
+    
+    Button.TouchTap:Connect(function()
+        state = not state
+        local targetColor = state and Color3.fromRGB(45, 200, 100) or Color3.fromRGB(50, 50, 50)
+        local targetPos = state and UDim2.new(1, -26, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
+        
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
+        TweenService:Create(InnerCircle, TweenInfo.new(0.2), {Position = targetPos}):Play()
+        
+        pcall(callback, state)
+    end)
+end
+
+local function createTextBox(parent, placeholder)
+    local TextBox = Instance.new("TextBox")
+    TextBox.Size = UDim2.new(1, -10, 0, 40)
+    TextBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    TextBox.Font = Enum.Font.GothamSemibold
+    TextBox.Text = ""
+    TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TextBox.TextSize = 14
+    TextBox.PlaceholderText = placeholder or "Enter text..."
+    TextBox.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = TextBox
+    
+    return TextBox
+end
+
+-- =============================================
+-- ========== SLIDER (ИСПРАВЛЕН ДЛЯ ТЕЛЕФОНОВ) ==========
+-- =============================================
+
+local function createSlider(parent, text, default, min, max, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(1, -10, 0, 40)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.5, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Font = Enum.Font.GothamSemibold
+    Label.Text = text
+    Label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Label.TextSize = 13
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Frame
+    
+    local Slider = Instance.new("Frame")
+    Slider.Size = UDim2.new(0.4, 0, 0.35, 0)
+    Slider.Position = UDim2.new(0.48, 0, 0.32, 0)
+    Slider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Slider.Parent = Frame
+    
+    local SliderCorner = Instance.new("UICorner")
+    SliderCorner.CornerRadius = UDim.new(0, 4)
+    SliderCorner.Parent = Slider
+    
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    Fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Fill.Parent = Slider
+    
+    local FillCorner = Instance.new("UICorner")
+    FillCorner.CornerRadius = UDim.new(0, 4)
+    FillCorner.Parent = Fill
+    
+    local Value = Instance.new("TextLabel")
+    Value.Size = UDim2.new(0, 30, 1, 0)
+    Value.Position = UDim2.new(1, -32, 0, 0)
+    Value.BackgroundTransparency = 1
+    Value.Font = Enum.Font.GothamSemibold
+    Value.Text = tostring(default)
+    Value.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Value.TextSize = 12
+    Value.Parent = Frame
+    
+    local currentValue = default
+    local dragging = false
+    
+    local function updateSlider(input)
+        local pos = input.Position.X - Slider.AbsolutePosition.X
+        local size = Slider.AbsoluteSize.X
+        if size <= 0 then return end
+        local percent = math.clamp(pos / size, 0, 1)
+        currentValue = math.floor(min + (max - min) * percent)
+        Fill.Size = UDim2.new(percent, 0, 1, 0)
+        Value.Text = tostring(currentValue)
+        pcall(callback, currentValue)
+    end
+    
+    Slider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            updateSlider(input)
+        end
+    end)
+    
+    local moveConn
+    moveConn = UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+                         input.UserInputType == Enum.UserInputType.Touch) then
+            updateSlider(input)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            if moveConn then moveConn:Disconnect() end
+        end
+    end)
+end
+
+-- =============================================
+-- ========== СОЗДАНИЕ КНОПКИ ДЛЯ АУР ==========
+-- =============================================
+
+local function createAuraDropdown()
+    if auraDropdownContainer then
+        auraDropdownContainer:Destroy()
+        auraDropdownContainer = nil
+    end
+    
+    auraDropdownContainer = Instance.new("Frame")
+    auraDropdownContainer.Size = UDim2.new(1, -10, 0, #aura_order * 35 + 10)
+    auraDropdownContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    auraDropdownContainer.BackgroundTransparency = 0.3
+    auraDropdownContainer.Visible = false
+    auraDropdownContainer.Parent = VisualPage
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 2)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = auraDropdownContainer
+    
+    for _, name in ipairs(aura_order) do
+        createToggle(auraDropdownContainer, "Aura: " .. name:upper(), false, function(state)
+            auraSelected[name] = state
+            if auraActive then
+                applyAura()
+            end
+        end)
+    end
+end
+
+local function createAuraToggleButton(parent)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(1, -10, 0, 40)
+    Button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Text = "▼ Show Auras"
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 14
+    Button.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Button
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(50, 50, 50)
+    Stroke.Thickness = 1
+    Stroke.Parent = Button
+    
+    Button.MouseButton1Click:Connect(function()
+        auraDropdownVisible = not auraDropdownVisible
+        if auraDropdownVisible then
+            Button.Text = "▲ Hide Auras"
+            if auraDropdownContainer then
+                auraDropdownContainer.Visible = true
+            end
+        else
+            Button.Text = "▼ Show Auras"
+            if auraDropdownContainer then
+                auraDropdownContainer.Visible = false
+            end
+        end
+    end)
+    
+    Button.TouchTap:Connect(function()
+        auraDropdownVisible = not auraDropdownVisible
+        if auraDropdownVisible then
+            Button.Text = "▲ Hide Auras"
+            if auraDropdownContainer then
+                auraDropdownContainer.Visible = true
+            end
+        else
+            Button.Text = "▼ Show Auras"
+            if auraDropdownContainer then
+                auraDropdownContainer.Visible = false
+            end
+        end
+    end)
+    
+    return Button
+end
+
+-- =============================================
+-- ========== VISUAL TAB ==========
+-- =============================================
+
+createToggle(VisualPage, "ESP (Innocent, Sheriff, Murderer)", false, function(state)
+    ESP_Enabled = state
+    if ESP_Enabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            applyESP(player)
+        end
+        if espConnection then espConnection:Disconnect() end
+        espConnection = Players.PlayerAdded:Connect(applyESP)
+        notify("ESP", "Enabled")
+    else
+        removeESP()
+        if espConnection then 
+            espConnection:Disconnect() 
+            espConnection = nil 
+        end
+        notify("ESP", "Disabled")
+    end
+end)
+
+createToggle(VisualPage, "Gun Esp", false, function(state)
+    gunEspEnabled = state
+    if not state then
+        for _, obj in pairs(gunEspObjects) do
+            pcall(function() obj:Destroy() end)
+        end
+        gunEspObjects = {}
+    end
+    notify("GunESP", state and "Enabled" or "Disabled")
+end)
+
+createToggle(VisualPage, "Aura Enabled", false, function(state)
+    auraActive = state
+    if state then
+        applyAura()
+        notify("Aura", "Enabled")
+    else
+        clearAura()
+        notify("Aura", "Disabled")
+    end
+end)
+
+createAuraToggleButton(VisualPage)
+createAuraDropdown()
+
+createSlider(VisualPage, "Red", 133, 0, 255, function(value)
+    auraColorValues.R = value
+    updateAuraColor()
+end)
+
+createSlider(VisualPage, "Green", 220, 0, 255, function(value)
+    auraColorValues.G = value
+    updateAuraColor()
+end)
+
+createSlider(VisualPage, "Blue", 255, 0, 255, function(value)
+    auraColorValues.B = value
+    updateAuraColor()
+end)
+
+createToggle(VisualPage, "Evening", false, function(state)
+    if state then
+        ApplyShader("Evening")
+        StartShaderLoop()
+    else
+        ApplyShader("None")
+    end
+end)
+
+createToggle(VisualPage, "Night", false, function(state)
+    if state then
+        ApplyShader("Night")
+        StartShaderLoop()
+    else
+        ApplyShader("None")
+    end
+end)
+
+createToggle(VisualPage, "Day", false, function(state)
+    if state then
+        ApplyShader("None")
+    end
+end)
+
+createToggle(VisualPage, "FpsBoost", false, function(state)
+    if state then
+        EnableFPSBoost()
+    else
+        DisableFPSBoost()
+    end
+end)
+
+-- =============================================
+-- ========== COMBAT TAB ==========
+-- =============================================
+
+createToggle(CombatPage, "SilentAim-E", false, function(state)
+    silentAimEnabled = state
+    notify("Silent Aim", state and "Enabled (press E to shoot)" or "Disabled")
+end)
+
+createToggle(CombatPage, "ToggleShot", false, function(state)
+    if shotButton then
+        shotButton.Visible = state
+    end
+end)
+
+createButton(CombatPage, "Kill All", function()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            killTargetRemote(player)
+            task.wait(0.1)
+        end
+    end
+    notify("Kill All", "All players killed!")
+end)
+
+createButton(CombatPage, "Kill Sheriff", function()
+    local found = false
+    for _, player in ipairs(Players:GetPlayers()) do
+        if getPlayerRole(player) == "Sheriff" then
+            killTargetRemote(player)
+            found = true
+            notify("Kill Sheriff", "Sheriff " .. player.Name .. " killed!")
+            break
+        end
+    end
+    if not found then
+        notify("Kill Sheriff", "Sheriff not found!")
+    end
+end)
+
+-- =============================================
+-- ========== MOVEMENT TAB ==========
+-- =============================================
+
+createToggle(MovementPage, "Bhop", false, function(state)
+    bhopActive = state
+    if state then
+        StartBhop()
+    else
+        StopBhop()
+    end
+end)
+
+createSlider(MovementPage, "Bhop Speed", 50, 0, 100, function(value)
+    bhopSpeed = value
+end)
+
+createToggle(MovementPage, "Spin", false, function(state)
+    if state then
+        ApplySpin(spinSpeed > 0 and spinSpeed or 50)
+    else
+        ApplySpin(0)
+    end
+end)
+
+createSlider(MovementPage, "Spin Speed", 50, 0, 150, function(value)
+    spinSpeed = value
+    if spinActive then
+        ApplySpin(value)
+    end
+end)
+
+createToggle(MovementPage, "Walk Speed", false, function(state)
+    if state then
+        local char = LocalPlayer.Character
+        if char then
+            local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = currentWalkSpeed
+            end
+        end
+    end
+end)
+
+createSlider(MovementPage, "Speed", 16, 0, 100, function(value)
+    currentWalkSpeed = value
+    local char = LocalPlayer.Character
+    if char then
+        local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = value
+        end
+    end
+end)
+
+createToggle(MovementPage, "Fly", false, function(state)
+    if state then
+        StartFly()
+    else
+        StopFly()
+    end
+end)
+
+createToggle(MovementPage, "Noclip", false, function(state)
+    if state then
+        StartNoclip()
+    else
+        StopNoclip()
+    end
+end)
+
+createToggle(MovementPage, "InfJump", false, function(state)
+    if state then
+        StartInfJump()
+    else
+        StopInfJump()
+    end
+end)
+
+-- =============================================
+-- ========== TELEPORT TAB ==========
+-- =============================================
+
+-- 🔥 АВТОФАРМ ТОГГЛ
+createToggle(TeleportPage, "Автофарм Монет (70 сек ресет)", false, function(state)
+    if state then
+        StartFarm()
+        notify("Автофарм", "Запущен! Ресет через 70 секунд.", 3)
+    else
+        StopFarm()
+        notify("Автофарм", "Остановлен!", 2)
+    end
+end)
+
+createButton(TeleportPage, "Teleport Tool", function()
+    local TpTool = Instance.new("Tool")
+    TpTool.Name = "Teleport Tool"
+    TpTool.RequiresHandle = false
+    TpTool.Parent = LocalPlayer:FindFirstChildOfClass("Backpack")
+    local mouse = LocalPlayer:GetMouse()
+    TpTool.Activated:Connect(function()
+        local rootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
+        local targetPos = mouse.Hit
+        if not targetPos then return end
+        rootPart.CFrame = CFrame.new(targetPos.X, targetPos.Y + 3, targetPos.Z)
+        for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.Velocity = Vector3.new(0, 0, 0)
+                v.RotVelocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end)
+    notify("Teleport", "Tool added to inventory")
+end)
+
+createButton(TeleportPage, "TP to Murderer", function()
+    local murderers = GetRolePlayers("murderer")
+    if #murderers > 0 then
+        TeleportToPlayer(murderers[1])
+    else
+        notify("Teleport", "Murderer not found")
+    end
+end)
+
+createButton(TeleportPage, "TP to Sheriff", function()
+    local sheriffs = GetRolePlayers("sheriff")
+    if #sheriffs > 0 then
+        TeleportToPlayer(sheriffs[1])
+    else
+        notify("Teleport", "Sheriff not found")
+    end
+end)
+
+createToggle(TeleportPage, "Stealth TP to Gun", false, function(state)
+    autoGunEnabled = state
+    notify("Stealth TP", state and "Auto gun pickup enabled!" or "Auto gun pickup disabled.")
+end)
+
+-- =============================================
+-- ========== FUNNY TAB ==========
+-- =============================================
+
+createButton(FunnyPage, "Jerk", function()
+    if not jerkActive then
+        StartJerk()
+    else
+        StopJerk()
+    end
+end)
+
+local gbangTextBox = createTextBox(FunnyPage, "Enter player name...")
+createToggle(FunnyPage, "GBang", false, function(state)
+    if state then
+        local targetName = gbangTextBox and gbangTextBox.Text or ""
+        if targetName and targetName ~= "" then
+            StartBang(targetName)
+        else
+            notify("GBang", "Enter a player name first!")
+        end
+    else
+        StopBang()
+    end
+end)
+
+-- =============================================
+-- ========== OTHER TAB ==========
+-- =============================================
+
+createButton(OtherPage, "Rejoin", function()
+    game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+end)
+
+local onlineBox = Instance.new("Frame")
+onlineBox.Size = UDim2.new(1, -10, 0, 200)
+onlineBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+onlineBox.Parent = OtherPage
+
+local onlineCorner = Instance.new("UICorner")
+onlineCorner.CornerRadius = UDim.new(0, 6)
+onlineCorner.Parent = onlineBox
+
+local onlineHeader = Instance.new("TextLabel")
+onlineHeader.Size = UDim2.new(1, 0, 0, 30)
+onlineHeader.BackgroundTransparency = 1
+onlineHeader.Font = Enum.Font.GothamBold
+onlineHeader.Text = "Online Players (0)"
+onlineHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+onlineHeader.TextSize = 14
+onlineHeader.Parent = onlineBox
+
+local onlineList = Instance.new("ScrollingFrame")
+onlineList.Size = UDim2.new(1, -10, 1, -35)
+onlineList.Position = UDim2.new(0, 5, 0, 32)
+onlineList.BackgroundTransparency = 1
+onlineList.BorderSizePixel = 0
+onlineList.ScrollBarThickness = 3
+onlineList.CanvasSize = UDim2.new(0, 0, 0, 0)
+onlineList.Parent = onlineBox
+
+local onlineListLayout = Instance.new("UIListLayout")
+onlineListLayout.Padding = UDim.new(0, 2)
+onlineListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+onlineListLayout.Parent = onlineList
+
+-- =============================================
+-- ========== SHOT BUTTON ==========
+-- =============================================
+
+shotButton = Instance.new("TextButton")
+shotButton.Size = UDim2.new(0, 70, 0, 70)
+shotButton.Position = UDim2.new(0.88, -35, 0.78, -35)
+shotButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+shotButton.BackgroundTransparency = 0.3
+shotButton.BorderSizePixel = 1
+shotButton.BorderColor3 = Color3.fromRGB(100, 100, 100)
+shotButton.Text = "Shot"
+shotButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+shotButton.TextSize = 14
+shotButton.Font = Enum.Font.GothamBold
+shotButton.AutoButtonColor = false
+shotButton.Parent = ScreenGui
+shotButton.ZIndex = 10
+shotButton.Visible = false
+
+local shotCorner = Instance.new("UICorner")
+shotCorner.CornerRadius = UDim.new(0, 22)
+shotCorner.Parent = shotButton
+
+shotButton.MouseButton1Click:Connect(function()
+    AttemptShoot()
+end)
+shotButton.TouchTap:Connect(function()
+    AttemptShoot()
+end)
+
+-- =============================================
+-- ========== KEYBIND FOR SHOT ==========
+-- =============================================
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    if input.KeyCode == Enum.KeyCode.E then
+        if silentAimEnabled then
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
+            if humanoid and humanoid.Health > 0 then
+                AttemptShoot()
+            end
+        end
+    end
+end)
+
+-- =============================================
+-- ========== РЕСПАВН ОБРАБОТКА ==========
+-- =============================================
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if jerkActive then
+        StopJerk()
+    end
+    if bangActive then
+        StopBang()
+    end
+    if flyActive then
+        StopFly()
+    end
+    if noclipActive then
+        StopNoclip()
+    end
+    if auraActive then
+        applyAura()
+    end
+    if spinActive then
+        ApplySpin(spinSpeed)
+    end
+    if Farm_Enabled then
+        task.wait(1)
+        StartFarm()
+    end
+end)
+
+-- =============================================
+-- ========== GUN ESP LOOP ==========
+-- =============================================
+RunService.Heartbeat:Connect(function(deltaTime)
+    gunEspTimer = gunEspTimer + deltaTime
+    if gunEspTimer >= 0.3 then
+        gunEspTimer = 0
+        pcall(updateGunESP)
+    end
+end)
+
+-- =============================================
+-- ========== AUTO GUN LOOP ==========
+-- =============================================
+task.spawn(function()
+    while task.wait(0.2) do
+        if autoGunEnabled then
+            StealthGrabGun()
+        end
+    end
+end)
+
+-- =============================================
+-- ========== DRAGGING ДЛЯ MAIN FRAME ==========
+-- =============================================
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+-- =============================================
+-- ========== ROBLOX GATEWAY (SERVER LINK) ==========
+-- =============================================
+
+task.spawn(function()
+    local httpService = game:GetService("HttpService")
+    local SERVER = "http://zxc13-34410.portmap.host:34410"
+
+    local g = {connected = false, playerInfo = nil, hbTimer = 0, pollTimer = 0}
+
+    local JSON_ENUM
+    pcall(function() JSON_ENUM = Enum.HttpContentType.ApplicationJson end)
+
+    local httpPOST, httpGET
+    if syn and syn.request then
+        httpPOST = function(url, body)
+            local r = syn.request({Url=url, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
+            return r.Success and r.StatusCode == 200, r.Body
+        end
+        httpGET = function(url)
+            local r = syn.request({Url=url, Method="GET"})
+            return r.Success and r.StatusCode == 200, r.Body
+        end
+    elseif _G.request then
+        httpPOST = function(url, body)
+            local r = _G.request({Url=url, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
+            return r.Success and r.StatusCode == 200, r.Body
+        end
+        httpGET = function(url)
+            local r = _G.request({Url=url, Method="GET"})
+            return r.Success and r.StatusCode == 200, r.Body
+        end
+    elseif http_request then
+        httpPOST = function(url, body)
+            local r = http_request({Url=url, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
+            return r.StatusCode == 200, r.Body
+        end
+        httpGET = function(url)
+            local r = http_request({Url=url, Method="GET"})
+            return r.Success and r.StatusCode == 200, r.Body
+        end
+    elseif JSON_ENUM then
+        httpPOST = function(url, body)
+            local r = httpService:PostAsync(url, body, JSON_ENUM, false)
+            return true, r
+        end
+        httpGET = function(url)
+            local r = httpService:GetAsync(url, false)
+            return true, r
+        end
+    else
+        httpPOST = function(url, body)
+            local r = httpService:PostAsync(url, body)
+            return true, r
+        end
+        httpGET = function(url)
+            local r = httpService:GetAsync(url)
+            return true, r
+        end
+    end
+
+    local function getInfo()
+        local p = Players.LocalPlayer
+        if not p then return nil end
+        return {
+            username = p.Name,
+            userId = tostring(p.UserId),
+            jobId = game.JobId,
+            displayName = p.DisplayName,
+            accountAge = p.AccountAge,
+            team = "None"
+        }
+    end
+
+    local function send(path, data)
+        local url = SERVER .. "/" .. path
+        local body = httpService:JSONEncode(data)
+        local ok, success = pcall(httpPOST, url, body)
+        return ok and success
+    end
+
+    local function updatePlayerList()
+        local url = SERVER .. "/players"
+        local ok, status, resp = pcall(httpGET, url)
+        if not ok or not status or not resp then return end
+        local d = httpService:JSONDecode(resp)
+        if not d or not d.players then return end
+
+        for _, child in ipairs(onlineList:GetChildren()) do
+            if child:IsA("TextLabel") then child:Destroy() end
+        end
+
+        local count = #d.players
+        onlineHeader.Text = "Online Players (" .. count .. ")"
+
+        for _, plr in ipairs(d.players) do
+            if plr.user_id == g.playerInfo.userId then
+                plr.username = plr.username .. " (you)"
+            end
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 0, 22)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamSemibold
+            lbl.Text = plr.username .. "  [" .. plr.team .. "]"
+            lbl.TextColor3 = plr.status == "Online" and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
+            lbl.TextSize = 12
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Parent = onlineList
+        end
+        onlineList.CanvasSize = UDim2.new(0, 0, 0, count * 22 + 5)
+    end
+
+    local function poll()
+        if not g.playerInfo then return end
+        local url = SERVER .. "/poll/" .. g.playerInfo.userId
+        local ok, status, resp = pcall(httpGET, url)
+        if not ok or not status or not resp then return end
+        local d = httpService:JSONDecode(resp)
+        if not d or not d.commands or #d.commands == 0 then return end
+        for _, cmd in ipairs(d.commands) do
+            if cmd.type == "kick" then
+                local p = Players.LocalPlayer
+                if p then p:Kick("Kicked by server: " .. (cmd.reason or "")) end
+            elseif cmd.type == "whisper" then
+                game:GetService("StarterGui"):SetCore("SendNotification", {Title="Whisper", Text=cmd.message or "", Duration=5})
+            elseif cmd.type == "broadcast" then
+                game:GetService("StarterGui"):SetCore("SendNotification", {Title="Server", Text=cmd.message or "", Duration=5})
+            end
+        end
+    end
+
+    local function connect()
+        if g.connected then return true end
+        g.playerInfo = getInfo()
+        if not g.playerInfo then return false end
+        if send("connect", {type="connect", username=g.playerInfo.username, userId=g.playerInfo.userId, jobId=g.playerInfo.jobId, displayName=g.playerInfo.displayName, accountAge=g.playerInfo.accountAge, team=g.playerInfo.team}) then
+            g.connected = true
+        else
+            g.connected = false
+        end
+        return g.connected
+    end
+
+    local function disconnect()
+        if not g.connected then return end
+        if g.playerInfo then send("disconnect", {type="disconnect", userId=g.playerInfo.userId}) end
+        g.connected = false
+    end
+
+    local connectAttempts = 0
+
+    while true do
+        task.wait(1)
+        local p = Players.LocalPlayer
+        if not p then continue end
+        g.playerInfo = getInfo()
+        if not g.playerInfo then continue end
+
+        if not g.connected then
+            connect()
+            if not g.connected then
+                connectAttempts = connectAttempts + 1
+                if connectAttempts >= 5 then
+                    task.wait(5)
+                    connectAttempts = 0
+                end
+            else
+                connectAttempts = 0
+            end
+            continue
+        end
+
+        g.hbTimer = g.hbTimer + 1
+        g.pollTimer = g.pollTimer + 1
+
+        if g.hbTimer >= 3 then
+            g.hbTimer = 0
+            local ok = send("heartbeat", {type="heartbeat", userId=g.playerInfo.userId, timestamp=os.time()})
+            if not ok then
+                g.connected = false
+            end
+        end
+
+        if g.pollTimer >= 2 then
+            g.pollTimer = 0
+            poll()
+            updatePlayerList()
+        end
+    end
+end)
+
+game.OnClose = function()
+    local ok, err = pcall(function()
+        local httpService = game:GetService("HttpService")
+        local url = "http://zxc13-34410.portmap.host:34410/disconnect"
+        local body = httpService:JSONEncode({type="disconnect", userId=tostring(LocalPlayer.UserId)})
+        local JSON_ENUM
+        pcall(function() JSON_ENUM = Enum.HttpContentType.ApplicationJson end)
+        if JSON_ENUM then
+            httpService:PostAsync(url, body, JSON_ENUM, true)
+        else
+            httpService:PostAsync(url, body, true)
+        end
+    end)
+end
+
+--

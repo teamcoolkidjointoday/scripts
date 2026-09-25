@@ -1,0 +1,4 @@
+S-skelet
+P-podpisano
+F-FullPromt
+U-PromtKiti

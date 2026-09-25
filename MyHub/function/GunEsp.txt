@@ -1,0 +1,94 @@
+-- GunESP.lua
+-- Gun ESP - подсветка пистолета на карте
+
+local gunEspEnabled = false
+local gunEspObjects = {}
+local gunEspTimer = 0
+local Player = game.Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local function updateGunESP()
+    -- Удаляем старые объекты
+    for _, obj in pairs(gunEspObjects) do
+        pcall(function() obj:Destroy() end)
+    end
+    gunEspObjects = {}
+
+    if not gunEspEnabled then return end
+
+    local gunDrop = Workspace:FindFirstChild("GunDrop", true)
+    if gunDrop then
+        local box = Instance.new("BoxHandleAdornment")
+        box.Name = "GunESP_Box"
+        box.Adornee = gunDrop
+        box.AlwaysOnTop = true
+        box.Color3 = Color3.fromRGB(255, 255, 255)
+        box.Size = gunDrop.Size or Vector3.new(2, 2, 2)
+        box.Transparency = 0.5
+        box.ZIndex = 0
+        box.Parent = Player:FindFirstChild("PlayerGui")
+        table.insert(gunEspObjects, box)
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "GunESP_Text"
+        billboard.Adornee = gunDrop
+        billboard.Size = UDim2.fromOffset(60, 20)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        billboard.AlwaysOnTop = true
+        billboard.MaxDistance = 600
+        billboard.Parent = Player:FindFirstChild("PlayerGui")
+
+        local label = Instance.new("TextLabel")
+        label.Text = "GUN"
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.BackgroundTransparency = 1
+        label.TextStrokeTransparency = 0.3
+        label.Size = UDim2.fromScale(1, 1)
+        label.Parent = billboard
+
+        table.insert(gunEspObjects, billboard)
+    end
+end
+
+-- Автообновление каждые 0.3 секунды
+RunService.Heartbeat:Connect(function(deltaTime)
+    gunEspTimer = gunEspTimer + deltaTime
+    if gunEspTimer >= 0.3 then
+        gunEspTimer = 0
+        pcall(updateGunESP)
+    end
+end)
+
+-- Функции для внешнего управления
+local function ToggleGunESP()
+    gunEspEnabled = not gunEspEnabled
+    if not gunEspEnabled then
+        for _, obj in pairs(gunEspObjects) do
+            pcall(function() obj:Destroy() end)
+        end
+        gunEspObjects = {}
+    end
+    return gunEspEnabled
+end
+
+local function IsGunESPActive()
+    return gunEspEnabled
+end
+
+-- Возвращаем модуль
+return {
+    Toggle = ToggleGunESP,
+    IsActive = IsGunESPActive,
+    SetEnabled = function(enabled)
+        gunEspEnabled = enabled
+        if not enabled then
+            for _, obj in pairs(gunEspObjects) do
+                pcall(function() obj:Destroy() end)
+            end
+            gunEspObjects = {}
+        end
+    end
+}

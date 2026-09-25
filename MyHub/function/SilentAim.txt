@@ -1,0 +1,99 @@
+﻿local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Offset = 2.8
+
+local function GetMurderer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        local character = player.Character
+        if character and (character:FindFirstChild("Knife") or player.Backpack:FindFirstChild("Knife")) then
+            return player
+        end
+    end
+    return nil
+end
+
+local function GetPredictedPosition(target)
+    local character = target.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not root or not humanoid then return nil end
+    
+    return root.Position + (root.AssemblyLinearVelocity * Vector3.new(0.75, 0.5, 0.75)) * (Offset / 15) + (humanoid.MoveDirection * Offset)
+end
+
+local function EquipGun(character)
+    if character:FindFirstChild("Gun") then return true end
+    
+    local gun = LocalPlayer.Backpack:FindFirstChild("Gun")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if gun and humanoid then
+        humanoid:EquipTool(gun)
+        task.wait(0.1)
+        return true
+    end
+    
+    return false
+end
+
+local function Fire(gun, origin, targetPosition)
+    local shootRemote = gun:FindFirstChild("Shoot") or (gun:FindFirstChild("Events") and gun.Events:FindFirstChild("Shoot"))
+    if shootRemote then
+        shootRemote:FireServer(CFrame.new(origin), CFrame.new(targetPosition))
+        return
+    end
+    
+    local knifeLocal = gun:FindFirstChild("KnifeLocal")
+    local createBeam = knifeLocal and knifeLocal:FindFirstChild("CreateBeam")
+    if createBeam then
+        createBeam:InvokeServer(1, targetPosition, "AH2")
+    end
+end
+
+local function AttemptShoot()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local murderer = GetMurderer()
+    if not murderer then return end
+    
+    local targetRoot = murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    task.spawn(function()
+        if not EquipGun(character) then return end
+        
+        local gun = character:FindFirstChild("Gun")
+        local rightHand = character:FindFirstChild("RightHand")
+        if not gun or not rightHand then return end
+        
+        local predicted = GetPredictedPosition(murderer) or targetRoot.Position
+        Fire(gun, rightHand.Position, predicted)
+    end)
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    if input.KeyCode == Enum.KeyCode.E then
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        
+        if humanoid and humanoid.Health > 0 then
+            AttemptShoot()
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    task.delay(0.5, function()
+        if character:Parent() then
+            EquipGun(character)
+        end
+    end)
+end)

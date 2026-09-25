@@ -1,0 +1,620 @@
+-- АУРА ВЬЮВЕР (ЧЕРНОЕ ПОЛУПРОЗРАЧНОЕ МЕНЮ)
+local player = game:GetService("Players").LocalPlayer
+local userInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+-- ===== НАСТРОЙКИ =====
+local aura_ids = {
+    angel = "97658130917593",
+    starlight = "134645216613107",
+    heavenly = "139300897520961",
+    ribbon = "132069507632161",
+    sakura = "81755778619404",
+    wind = "80694081850877",
+    flow = "119913533725648",
+    star = "73754563740680"
+}
+
+local aura_order = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
+
+-- ===== ПЕРЕМЕННЫЕ =====
+local aura_cache = {}
+local aura_particles = {}
+local aura_color = Color3.fromRGB(133, 220, 255)
+local aura_active = false
+local menu_open = false
+
+-- ВСЕ АУРЫ ВЫКЛЮЧЕНЫ ПРИ СТАРТЕ
+local selected_auras = {}
+for _, name in ipairs(aura_order) do
+    selected_auras[name] = false
+end
+
+-- ===== СОЗДАНИЕ GUI =====
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AuraViewer"
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+-- ===== КНОПКА ОТКРЫТИЯ =====
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 55, 0, 55)
+ToggleBtn.Position = UDim2.new(0.02, 0, 0.88, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ToggleBtn.BackgroundTransparency = 0.3
+ToggleBtn.BorderSizePixel = 1
+ToggleBtn.BorderColor3 = Color3.fromRGB(80, 80, 80)
+ToggleBtn.Text = "A"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 24
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.AutoButtonColor = false
+ToggleBtn.Parent = ScreenGui
+ToggleBtn.ZIndex = 10
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 18)
+ToggleCorner.Parent = ToggleBtn
+
+-- ПЕРЕТАСКИВАНИЕ КНОПКИ
+local btnDragging = false
+local btnDragStart = nil
+local btnStartPos = nil
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        btnDragging = true
+        btnDragStart = input.Position
+        btnStartPos = ToggleBtn.Position
+    end
+end)
+
+userInputService.InputChanged:Connect(function(input)
+    if btnDragging then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - btnDragStart
+            local newX = btnStartPos.X.Offset + delta.X
+            local newY = btnStartPos.Y.Offset + delta.Y
+            local camera = workspace.CurrentCamera
+            if camera then
+                local screenSize = camera.ViewportSize
+                local btnSize = ToggleBtn.AbsoluteSize
+                newX = math.clamp(newX, 0, screenSize.X - btnSize.X)
+                newY = math.clamp(newY, 0, screenSize.Y - btnSize.Y)
+            end
+            ToggleBtn.Position = UDim2.new(0, newX, 0, newY)
+        end
+    end
+end)
+
+userInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        btnDragging = false
+        btnDragStart = nil
+    end
+end)
+
+ToggleBtn.MouseEnter:Connect(function()
+    TweenService:Create(ToggleBtn, TweenInfo.new(0.15), {Size = UDim2.new(0, 60, 0, 60)}):Play()
+    ToggleBtn.BackgroundTransparency = 0.1
+end)
+
+ToggleBtn.MouseLeave:Connect(function()
+    TweenService:Create(ToggleBtn, TweenInfo.new(0.15), {Size = UDim2.new(0, 55, 0, 55)}):Play()
+    ToggleBtn.BackgroundTransparency = 0.3
+end)
+
+-- ===== МЕНЮ (ЧЕРНОЕ ПОЛУПРОЗРАЧНОЕ) =====
+local menuVisible = false
+local Menu = Instance.new("Frame")
+Menu.Size = UDim2.new(0, 280, 0, 350)
+Menu.Position = UDim2.new(0.5, -140, 0.5, -175)
+Menu.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Menu.BackgroundTransparency = 0.5
+Menu.BorderSizePixel = 1
+Menu.BorderColor3 = Color3.fromRGB(60, 60, 60)
+Menu.ClipsDescendants = true
+Menu.Parent = ScreenGui
+Menu.Visible = false
+
+local MenuCorner = Instance.new("UICorner")
+MenuCorner.CornerRadius = UDim.new(0, 16)
+MenuCorner.Parent = Menu
+
+-- ===== ПЕРЕТАСКИВАНИЕ МЕНЮ =====
+local menuDragging = false
+local menuDragStart = nil
+local menuStartPos = nil
+
+Menu.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        local pos = input.Position
+        local menuPos = Menu.AbsolutePosition
+        if pos.X >= menuPos.X and pos.X <= menuPos.X + 280 and pos.Y >= menuPos.Y and pos.Y <= menuPos.Y + 35 then
+            menuDragging = true
+            menuDragStart = pos
+            menuStartPos = Menu.Position
+        end
+    end
+end)
+
+userInputService.InputChanged:Connect(function(input)
+    if menuDragging then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - menuDragStart
+            Menu.Position = UDim2.new(0, menuStartPos.X.Offset + delta.X, 0, menuStartPos.Y.Offset + delta.Y)
+        end
+    end
+end)
+
+userInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        menuDragging = false
+        menuDragStart = nil
+    end
+end)
+
+-- ===== ЗАГОЛОВОК =====
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 35)
+Header.BackgroundTransparency = 1
+Header.Parent = Menu
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "AURA SELECTOR"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Center
+Title.Parent = Header
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 26, 0, 26)
+CloseBtn.Position = UDim2.new(1, -33, 0.5, -13)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+CloseBtn.BackgroundTransparency = 0.3
+CloseBtn.BorderSizePixel = 1
+CloseBtn.BorderColor3 = Color3.fromRGB(80, 80, 80)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 14
+CloseBtn.Parent = Header
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.Parent = CloseBtn
+CloseCorner.CornerRadius = UDim.new(0, 6)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    toggleMenu()
+end)
+
+CloseBtn.TouchTap:Connect(function()
+    toggleMenu()
+end)
+
+-- ===== СТАТУС =====
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(0, 100, 0, 20)
+StatusLabel.Position = UDim2.new(0, 8, 0, 38)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Selected: 0/8"
+StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+StatusLabel.TextSize = 10
+StatusLabel.Font = Enum.Font.GothamMedium
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = Menu
+
+-- ===== КНОПКА ВСЕ/НИЧЕГО =====
+local AllBtn = Instance.new("TextButton")
+AllBtn.Size = UDim2.new(0, 65, 0, 22)
+AllBtn.Position = UDim2.new(1, -75, 0, 38)
+AllBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+AllBtn.BackgroundTransparency = 0.3
+AllBtn.BorderSizePixel = 1
+AllBtn.BorderColor3 = Color3.fromRGB(80, 80, 80)
+AllBtn.Text = "ALL"
+AllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AllBtn.TextSize = 10
+AllBtn.Font = Enum.Font.GothamBold
+AllBtn.Parent = Menu
+
+local AllCorner = Instance.new("UICorner")
+AllCorner.CornerRadius = UDim.new(0, 4)
+AllCorner.Parent = AllBtn
+
+-- ===== СПИСОК АУР =====
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -16, 0, 160)
+ScrollFrame.Position = UDim2.new(0, 8, 0, 65)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 3
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+ScrollFrame.Parent = Menu
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local ItemsContainer = Instance.new("Frame")
+ItemsContainer.Size = UDim2.new(1, 0, 0, 0)
+ItemsContainer.BackgroundTransparency = 1
+ItemsContainer.Parent = ScrollFrame
+
+-- ===== ПАНЕЛЬ ЦВЕТА (НИЖЕ) =====
+local ColorPanel = Instance.new("Frame")
+ColorPanel.Size = UDim2.new(1, -16, 0, 55)
+ColorPanel.Position = UDim2.new(0, 8, 1, -62)
+ColorPanel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ColorPanel.BackgroundTransparency = 0.4
+ColorPanel.BorderSizePixel = 1
+ColorPanel.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ColorPanel.Parent = Menu
+
+local ColorPanelCorner = Instance.new("UICorner")
+ColorPanelCorner.CornerRadius = UDim.new(0, 6)
+ColorPanelCorner.Parent = ColorPanel
+
+local ColorLabel = Instance.new("TextLabel")
+ColorLabel.Size = UDim2.new(1, 0, 0, 14)
+ColorLabel.BackgroundTransparency = 1
+ColorLabel.Text = "COLOR"
+ColorLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+ColorLabel.TextSize = 9
+ColorLabel.Font = Enum.Font.GothamBold
+ColorLabel.TextXAlignment = Enum.TextXAlignment.Center
+ColorLabel.Parent = ColorPanel
+
+local colorValues = {R = 133, G = 220, B = 255}
+
+local function createColorSlider(parent, yPos, colorName, defaultValue)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -6, 0, 14)
+    frame.Position = UDim2.new(0, 3, 0, yPos)
+    frame.BackgroundTransparency = 1
+    frame.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 12, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = colorName
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 8
+    label.Font = Enum.Font.GothamBold
+    label.Parent = frame
+    
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -45, 1, 0)
+    sliderBg.Position = UDim2.new(0, 14, 0, 0)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    sliderBg.BorderSizePixel = 0
+    sliderBg.Parent = frame
+    
+    local sliderBgCorner = Instance.new("UICorner")
+    sliderBgCorner.CornerRadius = UDim.new(1, 0)
+    sliderBgCorner.Parent = sliderBg
+    
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(defaultValue/255, 0, 1, 0)
+    fill.BackgroundColor3 = colorName == "R" and Color3.fromRGB(255, 80, 80) or 
+                           colorName == "G" and Color3.fromRGB(80, 255, 80) or 
+                           Color3.fromRGB(80, 80, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = sliderBg
+    
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = fill
+    
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0, 26, 1, 0)
+    valueLabel.Position = UDim2.new(1, -28, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(defaultValue)
+    valueLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    valueLabel.TextSize = 8
+    valueLabel.Font = Enum.Font.Gotham
+    valueLabel.Parent = frame
+    
+    local currentValue = defaultValue
+    
+    local function updateSlider(mouseX)
+        local absX = sliderBg.AbsolutePosition.X
+        local absSize = sliderBg.AbsoluteSize.X
+        if absSize <= 0 then return end
+        local x = math.clamp((mouseX - absX) / absSize, 0, 1)
+        currentValue = math.round(x * 255)
+        fill.Size = UDim2.new(x, 0, 1, 0)
+        valueLabel.Text = tostring(currentValue)
+        colorValues[colorName] = currentValue
+        updateAuraColor()
+    end
+    
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            updateSlider(input.Position.X)
+            local connection
+            connection = userInputService.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                    updateSlider(input.Position.X)
+                end
+            end)
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    connection:Disconnect()
+                end
+            end)
+        end
+    end)
+end
+
+createColorSlider(ColorPanel, 14, "R", 133)
+createColorSlider(ColorPanel, 29, "G", 220)
+createColorSlider(ColorPanel, 44, "B", 255)
+
+-- ===== ФУНКЦИИ АУР =====
+function updateAuraColor()
+    aura_color = Color3.fromRGB(colorValues.R, colorValues.G, colorValues.B)
+    if aura_active then
+        applyAura()
+    end
+end
+
+function clearAura()
+    for _, particle in ipairs(aura_particles) do
+        pcall(function() particle:Destroy() end)
+    end
+    aura_particles = {}
+end
+
+function loadAura(name)
+    if aura_cache[name] then return aura_cache[name] end
+    local id = aura_ids[name]
+    if not id then return nil end
+    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
+    if success and result and result[1] then
+        aura_cache[name] = result[1]
+        return result[1]
+    end
+    return nil
+end
+
+function colorAura(model, color)
+    local seq = ColorSequence.new(color)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("PointLight") then
+            descendant.Color = color
+        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
+            descendant.Color = seq
+        end
+    end
+end
+
+function applyAura()
+    clearAura()
+    
+    local char = player.Character
+    if not char then return end
+    
+    local real_char = char
+    if char.Parent ~= workspace then
+        real_char = nil
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name == player.Name then
+                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp:IsA("BasePart") then
+                        real_char = obj
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    if not real_char then return end
+    
+    local count = 0
+    for _, name in ipairs(aura_order) do
+        if selected_auras[name] then
+            count = count + 1
+            local aura_model = loadAura(name)
+            if aura_model then
+                colorAura(aura_model, aura_color)
+                local cloned = aura_model:Clone()
+                for _, part in ipairs(cloned:GetChildren()) do
+                    local target = real_char:FindFirstChild(part.Name)
+                    if target and target:IsA("BasePart") then
+                        for _, child in ipairs(part:GetChildren()) do
+                            child.Parent = target
+                            table.insert(aura_particles, child)
+                        end
+                    end
+                end
+                cloned:Destroy()
+            end
+        end
+    end
+    
+    StatusLabel.Text = "Selected: " .. count .. "/8"
+end
+
+-- ===== СОЗДАНИЕ КНОПОК АУР =====
+local auraButtons = {}
+
+local function createAuraButton(aura_name, index)
+    local yPos = index * 31
+    
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 28)
+    row.Position = UDim2.new(0, 0, 0, yPos)
+    row.BackgroundTransparency = 1
+    row.Parent = ItemsContainer
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -35, 1, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btn.BackgroundTransparency = 0.3
+    btn.BorderSizePixel = 1
+    btn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+    btn.Text = aura_name:upper()
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.TextSize = 10
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.TextYAlignment = Enum.TextYAlignment.Center
+    btn.Parent = row
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+    
+    local checkbox = Instance.new("TextButton")
+    checkbox.Size = UDim2.new(0, 20, 0, 20)
+    checkbox.Position = UDim2.new(1, -26, 0.5, -10)
+    checkbox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    checkbox.BackgroundTransparency = 0.3
+    checkbox.BorderSizePixel = 1
+    checkbox.BorderColor3 = Color3.fromRGB(70, 70, 70)
+    checkbox.Text = ""
+    checkbox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    checkbox.TextSize = 12
+    checkbox.Font = Enum.Font.GothamBold
+    checkbox.Parent = row
+    
+    local checkCorner = Instance.new("UICorner")
+    checkCorner.CornerRadius = UDim.new(0, 4)
+    checkCorner.Parent = checkbox
+    
+    local function updateCheckbox()
+        if selected_auras[aura_name] then
+            checkbox.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+            checkbox.BackgroundTransparency = 0.1
+            checkbox.Text = "✓"
+            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+            btn.BackgroundTransparency = 0.15
+            btn.BorderColor3 = Color3.fromRGB(80, 150, 255)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            checkbox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            checkbox.BackgroundTransparency = 0.3
+            checkbox.Text = ""
+            btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            btn.BackgroundTransparency = 0.3
+            btn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+        if aura_active then 
+            applyAura() 
+        end
+    end
+    
+    btn.MouseButton1Click:Connect(function()
+        selected_auras[aura_name] = not selected_auras[aura_name]
+        updateCheckbox()
+    end)
+    
+    btn.TouchTap:Connect(function()
+        selected_auras[aura_name] = not selected_auras[aura_name]
+        updateCheckbox()
+    end)
+    
+    checkbox.MouseButton1Click:Connect(function()
+        selected_auras[aura_name] = not selected_auras[aura_name]
+        updateCheckbox()
+    end)
+    
+    checkbox.TouchTap:Connect(function()
+        selected_auras[aura_name] = not selected_auras[aura_name]
+        updateCheckbox()
+    end)
+    
+    auraButtons[aura_name] = {btn = btn, checkbox = checkbox, update = updateCheckbox}
+    updateCheckbox()
+end
+
+for i, name in ipairs(aura_order) do
+    createAuraButton(name, i - 1)
+end
+
+-- ===== КНОПКА ВСЕ/НИЧЕГО =====
+local allOn = false
+
+AllBtn.MouseButton1Click:Connect(function()
+    allOn = not allOn
+    for _, name in ipairs(aura_order) do
+        selected_auras[name] = allOn
+    end
+    for name, data in pairs(auraButtons) do
+        data.update()
+    end
+    AllBtn.Text = allOn and "ALL" or "NONE"
+    if aura_active then applyAura() end
+end)
+
+AllBtn.TouchTap:Connect(function()
+    allOn = not allOn
+    for _, name in ipairs(aura_order) do
+        selected_auras[name] = allOn
+    end
+    for name, data in pairs(auraButtons) do
+        data.update()
+    end
+    AllBtn.Text = allOn and "ALL" or "NONE"
+    if aura_active then applyAura() end
+end)
+
+-- ===== ОБНОВЛЕНИЕ РАЗМЕРА =====
+local function updateContainerSize()
+    local count = #aura_order
+    local height = count * 31 + 10
+    ItemsContainer.Size = UDim2.new(1, 0, 0, height)
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, height)
+end
+updateContainerSize()
+
+-- ===== ПРИ РЕСПАВНЕ СОХРАНЯЕМ АУРЫ =====
+player.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    if aura_active then
+        applyAura()
+    end
+end)
+
+-- ===== ОТКРЫТИЕ/ЗАКРЫТИЕ С ЦЕНТРИРОВАНИЕМ =====
+function toggleMenu()
+    menuVisible = not menuVisible
+    Menu.Visible = menuVisible
+    
+    if menuVisible then
+        -- ЦЕНТРИРУЕМ МЕНЮ ПРИ ОТКРЫТИИ
+        Menu.Position = UDim2.new(0.5, -140, 0.5, -175)
+        
+        if not aura_active then
+            aura_active = true
+            applyAura()
+        end
+    end
+    -- ПРИ ЗАКРЫТИИ МЕНЮ АУРЫ НЕ УДАЛЯЮТСЯ!
+end
+
+ToggleBtn.MouseButton1Click:Connect(toggleMenu)
+ToggleBtn.TouchTap:Connect(toggleMenu)
+
+-- Горячая клавиша
+userInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.RightAlt then
+        toggleMenu()
+    end
+end)
+
+print("Aura Viewer loaded!")
+print("Press RightAlt or click A button")
+print("All auras are OFF by default")
+
+wait(0.5)
+toggleMenu()

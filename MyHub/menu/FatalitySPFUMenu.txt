@@ -1,0 +1,351 @@
+--[[
+    WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/sosopjs/menuft/refs/heads/main/menu"))();
+local Notification = Fatality:CreateNotifier();
+
+Fatality:Loader({
+    Name = "KITI",
+    Duration = 4
+});
+
+Notification:Notify({
+    Title = "KITI",
+    Content = "Hello, "..game.Players.LocalPlayer.DisplayName..' Welcome back!',
+    Icon = "clipboard"
+})
+
+local Window = Fatality.new({
+    Name = "KITI",
+    Expire = "never",
+});
+
+-- ===== TABS =====
+local Combat = Window:AddMenu({
+    Name = "COMBAT",
+    Icon = "skull"
+})
+
+local Visual = Window:AddMenu({
+    Name = "VISUAL",
+    Icon = "eye"
+})
+
+local Movement = Window:AddMenu({
+    Name = "MOVEMENT",
+    Icon = "move"
+})
+
+local Teleport = Window:AddMenu({
+    Name = "TELEPORT",
+    Icon = "globe"
+})
+
+local Funny = Window:AddMenu({
+    Name = "FUNNY",
+    Icon = "smile"
+})
+
+local Other = Window:AddMenu({
+    Name = "OTHER",
+    Icon = "settings"
+})
+
+-- =============================================
+-- ========== COMBAT ==========
+-- =============================================
+do
+    -- ===== SHERIFF (left) =====
+    local Sheriff = Combat:AddSection({
+        Position = 'left',
+        Name = "SHERIFF"
+    });
+    
+    Sheriff:AddToggle({
+        Name = "SilentAim-E"
+    });
+    
+    Sheriff:AddToggle({
+        Name = "ToggleShot"
+    });
+    
+    -- ===== MURDER (center) =====
+    local Murder = Combat:AddSection({
+        Position = 'center',
+        Name = "MURDER"
+    });
+    
+    Murder:AddButton({
+        Name = "KillAll",
+        Callback = function()
+            Notification:Notify({
+                Title = "KillAll",
+                Content = "KillAll activated!",
+                Duration = 2,
+                Icon = "skull"
+            })
+        end
+    });
+end
+
+-- =============================================
+-- ========== VISUAL ==========
+-- =============================================
+do
+    -- ===== ESP (left) =====
+    local Esp = Visual:AddSection({
+        Position = 'left',
+        Name = "ESP"
+    });
+    
+    Esp:AddToggle({
+        Name = "Innocent"
+    });
+    
+    Esp:AddToggle({
+        Name = "Murder"
+    });
+    
+    Esp:AddToggle({
+        Name = "Sheriff"
+    });
+    
+    Esp:AddToggle({
+        Name = "GunEsp"
+    });
+    
+    -- ===== AURA (center) =====
+    local Aura = Visual:AddSection({
+        Position = 'center',
+        Name = "AURA"
+    });
+    
+    Aura:AddToggle({
+        Name = "Angel"
+    });
+    
+    Aura:AddToggle({
+        Name = "Starlight"
+    });
+    
+    Aura:AddToggle({
+        Name = "Heavenly"
+    });
+    
+    Aura:AddToggle({
+        Name = "Ribbon"
+    });
+    
+    Aura:AddToggle({
+        Name = "Sakura"
+    });
+    
+    Aura:AddToggle({
+        Name = "Wind"
+    });
+    
+    Aura:AddToggle({
+        Name = "Flow"
+    });
+    
+    Aura:AddToggle({
+        Name = "Star"
+    });
+    
+    -- ===== AMBIENT (center) =====
+    local Ambient = Visual:AddSection({
+        Position = 'center',
+        Name = "AMBIENT"
+    });
+    
+    Ambient:AddToggle({
+        Name = "Evening"
+    });
+    
+    Ambient:AddToggle({
+        Name = "Night"
+    });
+    
+    Ambient:AddToggle({
+        Name = "Day"
+    });
+    
+    -- ===== OPTIMIZATION (right) =====
+    local Optimization = Visual:AddSection({
+        Position = 'right',
+        Name = "OPTIMIZATION"
+    });
+    
+    Optimization:AddToggle({
+        Name = "FpsBoost"
+    });
+end
+
+-- =============================================
+-- ========== MOVEMENT ==========
+-- =============================================
+do
+    -- ===== BHOP (left) =====
+    local Bhop = Movement:AddSection({
+        Position = 'left',
+        Name = "BHOP"
+    });
+    
+    Bhop:AddToggle({
+        Name = "Bhop"
+    });
+    
+    Bhop:AddSlider({
+        Name = "Bhop Speed",
+        Default = 50,
+        Type = "%",
+        Min = 0,
+        Max = 100
+    });
+    
+    -- ===== SPIN (center) =====
+    local Spin = Movement:AddSection({
+        Position = 'center',
+        Name = "SPIN"
+    });
+    
+    Spin:AddToggle({
+        Name = "Spin"
+    });
+    
+    Spin:AddSlider({
+        Name = "Spin Speed",
+        Default = 50,
+        Type = "°",
+        Min = 0,
+        Max = 150
+    });
+    
+    -- ===== WALK SPEED (right) =====
+    local WalkSpeed = Movement:AddSection({
+        Position = 'right',
+        Name = "WALK SPEED"
+    });
+    
+    WalkSpeed:AddToggle({
+        Name = "Walk Speed"
+    });
+    
+    WalkSpeed:AddSlider({
+        Name = "Speed",
+        Default = 16,
+        Type = "%",
+        Min = 0,
+        Max = 100
+    });
+end
+
+-- =============================================
+-- ========== TELEPORT ==========
+-- =============================================
+do
+    -- ===== TELEPORT (left) =====
+    local TeleportSection = Teleport:AddSection({
+        Position = 'left',
+        Name = "TELEPORT"
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TeleportTool",
+        Callback = function()
+            Notification:Notify({
+                Title = "Teleport",
+                Content = "Teleport Tool added!",
+                Duration = 2,
+                Icon = "globe"
+            })
+        end
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TpToMurder",
+        Callback = function()
+            Notification:Notify({
+                Title = "Teleport",
+                Content = "Teleporting to Murderer...",
+                Duration = 2,
+                Icon = "globe"
+            })
+        end
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TpToSheriff",
+        Callback = function()
+            Notification:Notify({
+                Title = "Teleport",
+                Content = "Teleporting to Sheriff...",
+                Duration = 2,
+                Icon = "globe"
+            })
+        end
+    });
+    
+    -- ===== STEALTH TP GUN (center) =====
+    local StealthTP = Teleport:AddSection({
+        Position = 'center',
+        Name = "STEALTH TP"
+    });
+    
+    StealthTP:AddToggle({
+        Name = "StealthTpGun"
+    });
+end
+
+-- =============================================
+-- ========== FUNNY ==========
+-- =============================================
+do
+    -- ===== JERK (left) =====
+    local Jerk = Funny:AddSection({
+        Position = 'left',
+        Name = "JERK"
+    });
+    
+    Jerk:AddButton({
+        Name = "Jerk",
+        Callback = function()
+            Notification:Notify({
+                Title = "Jerk",
+                Content = "Jerk activated!",
+                Duration = 2,
+                Icon = "smile"
+            })
+        end
+    });
+    
+    -- ===== GBANG (center) =====
+    local GBang = Funny:AddSection({
+        Position = 'center',
+        Name = "GBANG"
+    });
+    
+    GBang:AddToggle({
+        Name = "GBang"
+    });
+    
+    GBang:AddTextBox({
+        Name = "Player Name",
+        Placeholder = "Enter player name..."
+    });
+end
+
+-- =============================================
+-- ========== OTHER ==========
+-- =============================================
+do
+    local OtherMain = Other:AddSection({
+        Name = "MISC",
+        Position = 'left'
+    })
+    
+    local OtherExtra = Other:AddSection({
+        Name = "EXTRA",
+        Position = 'center'
+    })
+end

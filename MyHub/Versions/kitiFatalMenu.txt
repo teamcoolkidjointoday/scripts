@@ -1,0 +1,1953 @@
+--[[
+    WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/sosopjs/menuft/refs/heads/main/menu"))();
+local Notification = Fatality:CreateNotifier();
+
+Fatality:Loader({
+    Name = "KITI",
+    Duration = 4
+});
+
+Notification:Notify({
+    Title = "KITI",
+    Content = "Hello, "..game.Players.LocalPlayer.DisplayName..' Welcome back!',
+    Icon = "clipboard"
+})
+
+local Window = Fatality.new({
+    Name = "KITI_RBB",
+    Expire = "never",
+});
+
+-- ===== TABS =====
+local Combat = Window:AddMenu({
+    Name = "COMBAT",
+    Icon = "skull"
+})
+
+local Visual = Window:AddMenu({
+    Name = "VISUAL",
+    Icon = "eye"
+})
+
+local Movement = Window:AddMenu({
+    Name = "MOVEMENT",
+    Icon = "move"
+})
+
+local Teleport = Window:AddMenu({
+    Name = "TELEPORT",
+    Icon = "globe"
+})
+
+local Funny = Window:AddMenu({
+    Name = "FUNNY",
+    Icon = "smile"
+})
+
+local Other = Window:AddMenu({
+    Name = "OTHER",
+    Icon = "settings"
+})
+
+-- =============================================
+-- ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+-- =============================================
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+
+local isMobile = false
+pcall(function()
+    isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end)
+if not isMobile then
+    pcall(function()
+        local platform = UserInputService:GetPlatform()
+        isMobile = (platform == Enum.Platform.Android or platform == Enum.Platform.IOS)
+    end)
+end
+
+-- Переменные состояний
+local bhopActive = false
+local bhopConnection = nil
+local bhopSpeed = 50
+local bhopLastJump = 0
+local bhopJumpRequestConnection = nil
+local bhopJumpPressed = false
+
+-- ESP переменные (из ВЕСПУМУШ)
+local ESP_Enabled = false
+local Highlights = {}
+local espConnection = nil
+
+local gunEspEnabled = false
+local gunEspObjects = {}
+local gunEspTimer = 0
+
+local fpsBoostEnabled = false
+local fpsBoostDescendantConnection = nil
+
+local statsEnabled = false
+local StatsSettings = {ShowFPS = true, ShowPlayers = true, ShowPing = true, ShowSpeed = true}
+local SFPS, SPlayers, SPing, SSpeed = nil, nil, nil, nil
+
+local silentAimEnabled = false
+local shotButton = nil
+
+local flyActive = false
+local flyKeyDown = nil
+local flyKeyUp = nil
+local flySpeed = 15
+local flying = false
+
+local noclipActive = false
+local noclipConnection = nil
+
+local infJumpActive = false
+local infJumpConnection = nil
+local infJumpDebounce = false
+
+local spinActive = false
+local spinSpeed = 0
+local spinInstance = nil
+
+local shaderType = "None"
+local shaderLoop = nil
+
+local autoGunEnabled = false
+local currentWalkSpeed = 16
+
+local jerkActive = false
+local jerkTool = nil
+local jerkTrack = nil
+local jerkJorking = false
+
+local bangActive = false
+local bangTarget = nil
+local bangAnim = nil
+local bangTrack = nil
+local bangDiedConnection = nil
+local bangSeatConnection = nil
+
+-- =============================================
+-- ========== GUI BIND ==========
+-- =============================================
+local menuVisible = false
+local menuBindKey = Enum.KeyCode.LeftAlt
+local isWaitingForKey = false
+local bindTextBox = nil
+
+local function ToggleMenu()
+    menuVisible = not menuVisible
+    if Window.SetVisible then
+        Window:SetVisible(menuVisible)
+    elseif Window.Toggle then
+        Window:Toggle()
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == menuBindKey then
+        ToggleMenu()
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed or not isWaitingForKey then return end
+    
+    local key = input.KeyCode
+    if key ~= Enum.KeyCode.Unknown then
+        isWaitingForKey = false
+        menuBindKey = key
+        local keyName = tostring(key):gsub("Enum.KeyCode.", "")
+        if bindTextBox then
+            bindTextBox.Text = keyName
+        end
+        notify("Bind", "Key set to: " .. keyName)
+    end
+end)
+
+-- =============================================
+-- ========== НОТИФИКАЦИИ ==========
+-- =============================================
+local function notify(Title, Text, Time)
+    Notification:Notify({
+        Title = Title,
+        Content = Text,
+        Duration = Time or 3,
+        Icon = "clipboard"
+    })
+end
+
+-- =============================================
+-- ========== SILENT AIM ==========
+-- =============================================
+local LocalPlayer = Players.LocalPlayer
+local Offset = 2.8
+
+local function GetMurderer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        local character = player.Character
+        if character and (character:FindFirstChild("Knife") or player.Backpack:FindFirstChild("Knife")) then
+            return player
+        end
+    end
+    return nil
+end
+
+local function GetPredictedPosition(target)
+    local character = target.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not root or not humanoid then return nil end
+    
+    return root.Position + (root.AssemblyLinearVelocity * Vector3.new(0.75, 0.5, 0.75)) * (Offset / 15) + (humanoid.MoveDirection * Offset)
+end
+
+local function EquipGun(character)
+    if character:FindFirstChild("Gun") then return true end
+    
+    local gun = LocalPlayer.Backpack:FindFirstChild("Gun")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if gun and humanoid then
+        humanoid:EquipTool(gun)
+        task.wait(0.1)
+        return true
+    end
+    
+    return false
+end
+
+local function Fire(gun, origin, targetPosition)
+    local shootRemote = gun:FindFirstChild("Shoot") or (gun:FindFirstChild("Events") and gun.Events:FindFirstChild("Shoot"))
+    if shootRemote then
+        shootRemote:FireServer(CFrame.new(origin), CFrame.new(targetPosition))
+        return
+    end
+    
+    local knifeLocal = gun:FindFirstChild("KnifeLocal")
+    local createBeam = knifeLocal and knifeLocal:FindFirstChild("CreateBeam")
+    if createBeam then
+        createBeam:InvokeServer(1, targetPosition, "AH2")
+    end
+end
+
+local function AttemptShoot()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local murderer = GetMurderer()
+    if not murderer then return end
+    
+    local targetRoot = murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    task.spawn(function()
+        if not EquipGun(character) then return end
+        
+        local gun = character:FindFirstChild("Gun")
+        local rightHand = character:FindFirstChild("RightHand")
+        if not gun or not rightHand then return end
+        
+        local predicted = GetPredictedPosition(murderer) or targetRoot.Position
+        Fire(gun, rightHand.Position, predicted)
+    end)
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    if input.KeyCode == Enum.KeyCode.E then
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        
+        if humanoid and humanoid.Health > 0 and silentAimEnabled then
+            AttemptShoot()
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    task.delay(0.5, function()
+        if character:Parent() then
+            EquipGun(character)
+        end
+    end)
+end)
+
+-- =============================================
+-- ========== FPS BOOST ==========
+-- =============================================
+local function EnableFPSBoost()
+    if fpsBoostEnabled then return end
+    fpsBoostEnabled = true
+    
+    local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 1
+    end
+    
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.FogStart = 9e9
+    
+    pcall(function()
+        settings().Rendering.QualityLevel = 1
+    end)
+    
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CastShadow = false
+            v.Material = "Plastic"
+            v.Reflectance = 0
+        elseif v:IsA("Decal") then
+            v.Transparency = 1
+            v.Texture = ""
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Lifetime = NumberRange.new(0)
+        end
+    end
+    
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") then
+            v.Enabled = false
+        end
+    end
+    
+    if fpsBoostDescendantConnection then
+        fpsBoostDescendantConnection:Disconnect()
+    end
+    
+    fpsBoostDescendantConnection = workspace.DescendantAdded:Connect(function(child)
+        task.spawn(function()
+            if child:IsA("ForceField") or child:IsA("Sparkles") or child:IsA("Smoke") or child:IsA("Fire") or child:IsA("Beam") then
+                RunService.Heartbeat:Wait()
+                child:Destroy()
+            elseif child:IsA("BasePart") then
+                child.CastShadow = false
+            end
+        end)
+    end)
+    notify("FPS Boost", "Enabled")
+end
+
+local function DisableFPSBoost()
+    if not fpsBoostEnabled then return end
+    fpsBoostEnabled = false
+    
+    if fpsBoostDescendantConnection then
+        fpsBoostDescendantConnection:Disconnect()
+        fpsBoostDescendantConnection = nil
+    end
+    
+    local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
+    if Terrain then
+        Terrain.WaterWaveSize = 1
+        Terrain.WaterWaveSpeed = 1
+        Terrain.WaterReflectance = 0.5
+        Terrain.WaterTransparency = 0.8
+    end
+    
+    Lighting.GlobalShadows = true
+    Lighting.FogEnd = 100000
+    Lighting.FogStart = 0
+    
+    pcall(function()
+        settings().Rendering.QualityLevel = 10
+    end)
+    notify("FPS Boost", "Disabled")
+end
+
+-- =============================================
+-- ========== ШЕЙДЕРЫ ==========
+-- =============================================
+local function ApplyShader(theme)
+    if shaderLoop then
+        shaderLoop:Disconnect()
+        shaderLoop = nil
+    end
+    
+    shaderType = theme
+    
+    if theme == "Evening" then
+        Lighting.ClockTime = 18
+        Lighting.Brightness = 0.8
+        Lighting.Ambient = Color3.fromRGB(255, 180, 100)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 150, 80)
+        Lighting.FogEnd = 3000
+        Lighting.FogStart = 100
+        Lighting.FogColor = Color3.fromRGB(255, 180, 120)
+        Lighting.GlobalShadows = true
+        Lighting.Bloom = 0.3
+        notify("Shader", "Evening mode")
+    elseif theme == "Night" then
+        Lighting.ClockTime = 0
+        Lighting.Brightness = 0.15
+        Lighting.Ambient = Color3.fromRGB(20, 20, 50)
+        Lighting.OutdoorAmbient = Color3.fromRGB(15, 15, 45)
+        Lighting.FogEnd = 800
+        Lighting.FogStart = 30
+        Lighting.FogColor = Color3.fromRGB(10, 10, 30)
+        Lighting.GlobalShadows = true
+        Lighting.Bloom = 0.1
+        notify("Shader", "Night mode")
+    elseif theme == "None" then
+        Lighting.ClockTime = 14
+        Lighting.Brightness = 1
+        Lighting.Ambient = Color3.fromRGB(127, 127, 127)
+        Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+        Lighting.FogColor = Color3.fromRGB(127, 127, 127)
+        Lighting.GlobalShadows = false
+        Lighting.Bloom = 0
+        notify("Shader", "Disabled")
+    end
+end
+
+local function StartShaderLoop()
+    if shaderLoop then shaderLoop:Disconnect() end
+    shaderLoop = RunService.Heartbeat:Connect(function()
+        if shaderType == "Evening" then
+            if Lighting.ClockTime ~= 18 then Lighting.ClockTime = 18 end
+        elseif shaderType == "Night" then
+            if Lighting.ClockTime ~= 0 then Lighting.ClockTime = 0 end
+        end
+    end)
+end
+
+-- =============================================
+-- ========== АУРА ==========
+-- =============================================
+local auraActive = false
+local auraParticles = {}
+local auraCache = {}
+local auraSelected = {}
+local auraColor = Color3.fromRGB(133, 220, 255)
+local auraColorValues = {R = 133, G = 220, B = 255}
+
+local aura_ids = {
+    angel = "97658130917593",
+    starlight = "134645216613107",
+    heavenly = "139300897520961",
+    ribbon = "132069507632161",
+    sakura = "81755778619404",
+    wind = "80694081850877",
+    flow = "119913533725648",
+    star = "73754563740680"
+}
+local aura_order = {"angel", "starlight", "heavenly", "ribbon", "sakura", "wind", "flow", "star"}
+
+for _, name in ipairs(aura_order) do
+    auraSelected[name] = false
+end
+
+local function updateAuraColor()
+    auraColor = Color3.fromRGB(auraColorValues.R, auraColorValues.G, auraColorValues.B)
+    if auraActive then
+        applyAura()
+    end
+end
+
+local function clearAura()
+    for _, particle in ipairs(auraParticles) do
+        pcall(function() particle:Destroy() end)
+    end
+    auraParticles = {}
+end
+
+local function loadAura(name)
+    if auraCache[name] then return auraCache[name] end
+    local id = aura_ids[name]
+    if not id then return nil end
+    local success, result = pcall(game.GetObjects, game, "rbxassetid://"..id)
+    if success and result and result[1] then
+        auraCache[name] = result[1]
+        return result[1]
+    end
+    return nil
+end
+
+local function colorAura(model, color)
+    local seq = ColorSequence.new(color)
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("PointLight") then
+            descendant.Color = color
+        elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
+            descendant.Color = seq
+        end
+    end
+end
+
+local function applyAura()
+    clearAura()
+    
+    local char = Player.Character
+    if not char then return end
+    
+    local real_char = char
+    if char.Parent ~= workspace then
+        real_char = nil
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name == Player.Name then
+                if not (obj:GetAttribute("1") or obj == _G.VIEWPORT_CLONE) then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp:IsA("BasePart") then
+                        real_char = obj
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    if not real_char then return end
+    
+    for _, name in ipairs(aura_order) do
+        if auraSelected[name] then
+            local aura_model = loadAura(name)
+            if aura_model then
+                colorAura(aura_model, auraColor)
+                local cloned = aura_model:Clone()
+                for _, part in ipairs(cloned:GetChildren()) do
+                    local target = real_char:FindFirstChild(part.Name)
+                    if target and target:IsA("BasePart") then
+                        for _, child in ipairs(part:GetChildren()) do
+                            child.Parent = target
+                            table.insert(auraParticles, child)
+                        end
+                    end
+                end
+                cloned:Destroy()
+            end
+        end
+    end
+end
+
+Player.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if auraActive then
+        applyAura()
+    end
+end)
+
+-- =============================================
+-- ========== BHOP ==========
+-- =============================================
+local function StartBhop()
+    if bhopConnection then
+        bhopConnection:Disconnect()
+        bhopConnection = nil
+    end
+    
+    if bhopJumpRequestConnection then
+        bhopJumpRequestConnection:Disconnect()
+        bhopJumpRequestConnection = nil
+    end
+    
+    bhopJumpPressed = false
+    
+    bhopJumpRequestConnection = UserInputService.JumpRequest:Connect(function()
+        if bhopActive then
+            bhopJumpPressed = true
+            task.wait(0.05)
+            bhopJumpPressed = false
+        end
+    end)
+    
+    bhopConnection = RunService.Heartbeat:Connect(function()
+        if not bhopActive then return end
+        if not Player.Character then return end
+        
+        local hum = Player.Character:FindFirstChildOfClass("Humanoid")
+        local hrp = Player.Character:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return end
+        
+        local jumpPressed = false
+        
+        if isMobile then
+            jumpPressed = bhopJumpPressed
+        else
+            jumpPressed = UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        end
+        
+        if hum.FloorMaterial ~= Enum.Material.Air then
+            if jumpPressed then
+                local now = tick()
+                if now - bhopLastJump > 0.08 then
+                    bhopLastJump = now
+                    
+                    local moveDir = hum.MoveDirection
+                    if moveDir.Magnitude > 0 then
+                        local boost = moveDir.Unit * bhopSpeed
+                        hrp.Velocity = Vector3.new(boost.X, hum.JumpPower * 1.2, boost.Z)
+                    else
+                        hrp.Velocity = Vector3.new(hrp.Velocity.X, hum.JumpPower * 1.2, hrp.Velocity.Z)
+                    end
+                    
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+        else
+            if jumpPressed then
+                local vel = hrp.Velocity
+                local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
+                if horizontalVel.Magnitude < bhopSpeed then
+                    local moveDir = hum.MoveDirection
+                    if moveDir.Magnitude > 0 then
+                        local airControl = moveDir.Unit * 2
+                        hrp.Velocity = vel + Vector3.new(airControl.X, 0, airControl.Z)
+                    end
+                end
+            end
+        end
+    end)
+    notify("Bhop", "Enabled")
+end
+
+local function StopBhop()
+    if bhopConnection then
+        bhopConnection:Disconnect()
+        bhopConnection = nil
+    end
+    if bhopJumpRequestConnection then
+        bhopJumpRequestConnection:Disconnect()
+        bhopJumpRequestConnection = nil
+    end
+    bhopJumpPressed = false
+    notify("Bhop", "Disabled")
+end
+
+-- =============================================
+-- ========== SPIN ==========
+-- =============================================
+local function ApplySpin(speed)
+    if spinInstance then
+        spinInstance:Destroy()
+        spinInstance = nil
+    end
+    
+    if speed == 0 then
+        spinActive = false
+        notify("Spin", "Disabled")
+        return
+    end
+    
+    spinActive = true
+    spinSpeed = speed
+    
+    local char = Player.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    for _, v in pairs(root:GetChildren()) do
+        if v.Name == "Spinning" then
+            v:Destroy()
+        end
+    end
+    
+    spinInstance = Instance.new("BodyAngularVelocity")
+    spinInstance.Name = "Spinning"
+    spinInstance.Parent = root
+    spinInstance.MaxTorque = Vector3.new(0, math.huge, 0)
+    spinInstance.AngularVelocity = Vector3.new(0, speed, 0)
+    notify("Spin", "Speed: " .. speed)
+end
+
+Player.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if spinActive then
+        ApplySpin(spinSpeed)
+    end
+end)
+
+-- =============================================
+-- ========== FLY ==========
+-- =============================================
+local function getRoot(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+end
+
+local function StartFly()
+    if flyActive then 
+        StopFly()
+        task.wait(0.1)
+    end
+    
+    flyActive = true
+    flying = true
+    
+    local char = Player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    local root = getRoot(char)
+    if not root then return end
+    
+    local CONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+    local lCONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+    local SPEED = 0
+    
+    local bg = Instance.new("BodyGyro")
+    local bv = Instance.new("BodyVelocity")
+    
+    bg.P = 9e4
+    bg.Parent = root
+    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.CFrame = root.CFrame
+    
+    bv.Parent = root
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    
+    task.spawn(function()
+        while flying and flyActive do
+            task.wait()
+            local cam = workspace.CurrentCamera
+            
+            if humanoid then
+                humanoid.PlatformStand = true
+            end
+            
+            if CONTROL.L + CONTROL.R ~= 0 or CONTROL.F + CONTROL.B ~= 0 or CONTROL.Q + CONTROL.E ~= 0 then
+                SPEED = flySpeed
+            elseif not (CONTROL.L + CONTROL.R ~= 0 or CONTROL.F + CONTROL.B ~= 0 or CONTROL.Q + CONTROL.E ~= 0) and SPEED ~= 0 then
+                SPEED = 0
+            end
+            
+            if (CONTROL.L + CONTROL.R) ~= 0 or (CONTROL.F + CONTROL.B) ~= 0 or (CONTROL.Q + CONTROL.E) ~= 0 then
+                bv.Velocity = ((cam.CFrame.LookVector * (CONTROL.F + CONTROL.B)) + 
+                    ((cam.CFrame * CFrame.new(CONTROL.L + CONTROL.R, (CONTROL.F + CONTROL.B + CONTROL.Q + CONTROL.E) * 0.2, 0).p) - cam.CFrame.p)) * SPEED
+                lCONTROL = {F = CONTROL.F, B = CONTROL.B, L = CONTROL.L, R = CONTROL.R}
+            elseif (CONTROL.L + CONTROL.R) == 0 and (CONTROL.F + CONTROL.B) == 0 and (CONTROL.Q + CONTROL.E) == 0 and SPEED ~= 0 then
+                bv.Velocity = ((cam.CFrame.LookVector * (lCONTROL.F + lCONTROL.B)) + 
+                    ((cam.CFrame * CFrame.new(lCONTROL.L + lCONTROL.R, (lCONTROL.F + lCONTROL.B + CONTROL.Q + CONTROL.E) * 0.2, 0).p) - cam.CFrame.p)) * SPEED
+            else
+                bv.Velocity = Vector3.new(0, 0, 0)
+            end
+            
+            bg.CFrame = cam.CFrame
+            pcall(function() cam.CameraType = Enum.CameraType.Track end)
+        end
+        
+        if bg then bg:Destroy() end
+        if bv then bv:Destroy() end
+        if humanoid then humanoid.PlatformStand = false end
+    end)
+    
+    if flyKeyDown then flyKeyDown:Disconnect() end
+    if flyKeyUp then flyKeyUp:Disconnect() end
+    
+    flyKeyDown = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if not flyActive then return end
+        
+        if input.KeyCode == Enum.KeyCode.W then
+            CONTROL.F = flySpeed
+        elseif input.KeyCode == Enum.KeyCode.S then
+            CONTROL.B = -flySpeed
+        elseif input.KeyCode == Enum.KeyCode.A then
+            CONTROL.L = -flySpeed
+        elseif input.KeyCode == Enum.KeyCode.D then
+            CONTROL.R = flySpeed
+        elseif input.KeyCode == Enum.KeyCode.E then
+            CONTROL.Q = flySpeed * 2
+        elseif input.KeyCode == Enum.KeyCode.Q then
+            CONTROL.E = -flySpeed * 2
+        end
+    end)
+    
+    flyKeyUp = UserInputService.InputEnded:Connect(function(input, processed)
+        if processed then return end
+        if not flyActive then return end
+        
+        if input.KeyCode == Enum.KeyCode.W then
+            CONTROL.F = 0
+        elseif input.KeyCode == Enum.KeyCode.S then
+            CONTROL.B = 0
+        elseif input.KeyCode == Enum.KeyCode.A then
+            CONTROL.L = 0
+        elseif input.KeyCode == Enum.KeyCode.D then
+            CONTROL.R = 0
+        elseif input.KeyCode == Enum.KeyCode.E then
+            CONTROL.Q = 0
+        elseif input.KeyCode == Enum.KeyCode.Q then
+            CONTROL.E = 0
+        end
+    end)
+    
+    notify("Fly", "Enabled! WASD - move, Q/E - up/down")
+end
+
+local function StopFly()
+    flyActive = false
+    flying = false
+    
+    if flyKeyDown then 
+        flyKeyDown:Disconnect() 
+        flyKeyDown = nil
+    end
+    if flyKeyUp then 
+        flyKeyUp:Disconnect() 
+        flyKeyUp = nil
+    end
+    
+    local char = Player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+        end
+    end
+    
+    pcall(function() 
+        if workspace.CurrentCamera then 
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom 
+        end 
+    end)
+    
+    notify("Fly", "Disabled")
+end
+
+-- =============================================
+-- ========== NOCLIP ==========
+-- =============================================
+local function StartNoclip()
+    if noclipActive then return end
+    noclipActive = true
+    
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    
+    noclipConnection = RunService.Stepped:Connect(function()
+        if not noclipActive then return end
+        local char = Player.Character
+        if not char then return end
+        
+        for _, child in pairs(char:GetDescendants()) do
+            if child:IsA("BasePart") and child.CanCollide == true then
+                child.CanCollide = false
+            end
+        end
+    end)
+    notify("Noclip", "Enabled")
+end
+
+local function StopNoclip()
+    noclipActive = false
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    local char = Player.Character
+    if char then
+        for _, child in pairs(char:GetDescendants()) do
+            if child:IsA("BasePart") then
+                child.CanCollide = true
+            end
+        end
+    end
+    notify("Noclip", "Disabled")
+end
+
+-- =============================================
+-- ========== INFJUMP ==========
+-- =============================================
+local function StartInfJump()
+    if infJumpActive then return end
+    infJumpActive = true
+    
+    if infJumpConnection then
+        infJumpConnection:Disconnect()
+        infJumpConnection = nil
+    end
+    
+    infJumpConnection = UserInputService.JumpRequest:Connect(function()
+        if not infJumpActive then return end
+        if not infJumpDebounce then
+            infJumpDebounce = true
+            local char = Player.Character
+            if char then
+                local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+            task.wait(0.05)
+            infJumpDebounce = false
+        end
+    end)
+    notify("InfJump", "Enabled")
+end
+
+local function StopInfJump()
+    infJumpActive = false
+    if infJumpConnection then
+        infJumpConnection:Disconnect()
+        infJumpConnection = nil
+    end
+    infJumpDebounce = false
+    notify("InfJump", "Disabled")
+end
+
+-- =============================================
+-- ========== ESP (из ВЕСПУМУШ) ==========
+-- =============================================
+local function getPlayerRole(player)
+    if not player or not player:IsA("Player") then return "Innocent" end
+    
+    local character = player.Character
+    local backpack = player.Backpack
+    
+    local hasKnife = false
+    local hasGun = false
+    
+    if backpack then
+        if backpack:FindFirstChild("Knife") then hasKnife = true end
+        if backpack:FindFirstChild("Gun") then hasGun = true end
+    end
+    
+    if character then
+        if character:FindFirstChild("Knife") then hasKnife = true end
+        if character:FindFirstChild("Gun") then hasGun = true end
+    end
+    
+    if hasKnife then
+        return "Murderer"
+    elseif hasGun then
+        return "Sheriff"
+    else
+        return "Innocent"
+    end
+end
+
+local function applyESP(player)
+    if player == LocalPlayer then return end
+    
+    local function setupHighlight(character)
+        if not ESP_Enabled then return end
+        if Highlights[player] then Highlights[player]:Destroy() end
+        
+        local Highlight = Instance.new("Highlight")
+        Highlight.Parent = character
+        Highlight.Adornee = character
+        Highlight.FillTransparency = 0.5
+        Highlight.OutlineTransparency = 0.1
+        
+        Highlights[player] = Highlight
+        
+        task.spawn(function()
+            while character and character.Parent and ESP_Enabled do
+                local role = getPlayerRole(player)
+                if role == "Murderer" then
+                    Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                    Highlight.OutlineColor = Color3.fromRGB(255, 50, 50)
+                elseif role == "Sheriff" then
+                    Highlight.FillColor = Color3.fromRGB(0, 0, 255)
+                    Highlight.OutlineColor = Color3.fromRGB(50, 50, 255)
+                else
+                    Highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                    Highlight.OutlineColor = Color3.fromRGB(50, 255, 50)
+                end
+                task.wait(1)
+            end
+        end)
+    end
+    
+    if player.Character then
+        setupHighlight(player.Character)
+    end
+    
+    player.CharacterAdded:Connect(function(char)
+        if ESP_Enabled then
+            task.wait(0.5)
+            setupHighlight(char)
+        end
+    end)
+end
+
+local function removeESP()
+    for player, highlight in pairs(Highlights) do
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+    table.clear(Highlights)
+end
+
+-- =============================================
+-- ========== GUN ESP ==========
+-- =============================================
+local function updateGunESP()
+    for _, obj in pairs(gunEspObjects) do
+        pcall(function() obj:Destroy() end)
+    end
+    gunEspObjects = {}
+
+    if not gunEspEnabled then return end
+
+    local gunDrop = workspace:FindFirstChild("GunDrop", true)
+    if gunDrop then
+        local box = Instance.new("BoxHandleAdornment")
+        box.Name = "GunESP_Box"
+        box.Adornee = gunDrop
+        box.AlwaysOnTop = true
+        box.Color3 = Color3.fromRGB(255, 255, 255)
+        box.Size = gunDrop.Size or Vector3.new(2, 2, 2)
+        box.Transparency = 0.5
+        box.ZIndex = 0
+        box.Parent = Player:FindFirstChild("PlayerGui")
+        table.insert(gunEspObjects, box)
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "GunESP_Text"
+        billboard.Adornee = gunDrop
+        billboard.Size = UDim2.fromOffset(60, 20)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        billboard.AlwaysOnTop = true
+        billboard.MaxDistance = 600
+        billboard.Parent = Player:FindFirstChild("PlayerGui")
+
+        local label = Instance.new("TextLabel")
+        label.Text = "GUN"
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.BackgroundTransparency = 1
+        label.TextStrokeTransparency = 0.3
+        label.Size = UDim2.fromScale(1, 1)
+        label.Parent = billboard
+
+        table.insert(gunEspObjects, billboard)
+    end
+end
+
+local gunEspHeartbeat = RunService.Heartbeat:Connect(function(deltaTime)
+    gunEspTimer = gunEspTimer + deltaTime
+    if gunEspTimer >= 0.3 then
+        gunEspTimer = 0
+        pcall(updateGunESP)
+    end
+end)
+
+-- =============================================
+-- ========== ТЕЛЕПОРТ ==========
+-- =============================================
+local function TeleportToPlayer(targetPlayer)
+    if not targetPlayer or targetPlayer == Player then return end
+    local char = targetPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local myChar = Player.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    myRoot.CFrame = root.CFrame * CFrame.new(0, 2, 0)
+    notify("Teleport", "Teleported to " .. targetPlayer.Name)
+end
+
+local function GetRolePlayers(role)
+    local result = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == Player then continue end
+        local char = plr.Character
+        if not char then continue end
+        
+        local function hasWeapon(weaponType)
+            for _, tool in pairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local name = tool.Name:lower()
+                    if weaponType == "murderer" and (string.find(name, "knife") or string.find(name, "dagger") or string.find(name, "нож")) then
+                        return true
+                    elseif weaponType == "sheriff" and (string.find(name, "gun") or string.find(name, "revolver") or string.find(name, "pistol") or string.find(name, "пистолет")) then
+                        return true
+                    end
+                end
+            end
+            local backpack = plr:FindFirstChild("Backpack")
+            if backpack then
+                for _, tool in pairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local name = tool.Name:lower()
+                        if weaponType == "murderer" and (string.find(name, "knife") or string.find(name, "dagger") or string.find(name, "нож")) then
+                            return true
+                        elseif weaponType == "sheriff" and (string.find(name, "gun") or string.find(name, "revolver") or string.find(name, "pistol") or string.find(name, "пистолет")) then
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end
+        
+        if role == "murderer" and hasWeapon("murderer") then
+            table.insert(result, plr)
+        elseif role == "sheriff" and hasWeapon("sheriff") then
+            table.insert(result, plr)
+        end
+    end
+    return result
+end
+
+local function StealthGrabGun()
+    local gunDrop = workspace:FindFirstChild("GunDrop", true)
+    if gunDrop and (gunDrop:IsA("BasePart") or gunDrop:FindFirstChild("Handle")) then
+        local character = Player.Character
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            local originalCFrame = rootPart.CFrame
+            local targetPart = gunDrop:FindFirstChild("Handle") or gunDrop
+            rootPart.CFrame = targetPart.CFrame
+            task.wait(0.05)
+            rootPart.CFrame = originalCFrame
+            notify("Gun", "Gun picked up successfully!")
+        end
+    end
+end
+
+local autoGunLoop = task.spawn(function()
+    while task.wait(0.2) do
+        if autoGunEnabled then
+            StealthGrabGun()
+        end
+    end
+end)
+
+-- =============================================
+-- ========== FUNNY ==========
+-- =============================================
+local function StartJerk()
+    if jerkActive then
+        StopJerk()
+        task.wait(0.1)
+    end
+    
+    local char = Player.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    local backpack = Player:FindFirstChildWhichIsA("Backpack")
+    
+    if not char or not humanoid or not backpack then
+        notify("Jerk", "Character or inventory not found!")
+        return
+    end
+    
+    jerkActive = true
+    jerkJorking = false
+    
+    jerkTool = Instance.new("Tool")
+    jerkTool.Name = "Jerk"
+    jerkTool.RequiresHandle = false
+    jerkTool.Parent = backpack
+    
+    local function stopJorking()
+        jerkJorking = false
+        if jerkTrack then
+            jerkTrack:Stop()
+            jerkTrack = nil
+        end
+    end
+    
+    jerkTool.Equipped:Connect(function()
+        jerkJorking = true
+    end)
+    
+    jerkTool.Unequipped:Connect(stopJorking)
+    
+    humanoid.Died:Connect(function()
+        if jerkActive then
+            StopJerk()
+        end
+    end)
+    
+    task.spawn(function()
+        while jerkActive and jerkTool and jerkTool.Parent do
+            if jerkJorking then
+                local isR15 = false
+                if char then
+                    local hum = char:FindFirstChildWhichIsA("Humanoid")
+                    if hum and hum.RigType == Enum.HumanoidRigType.R15 then
+                        isR15 = true
+                    end
+                end
+                
+                if not jerkTrack then
+                    local anim = Instance.new("Animation")
+                    anim.AnimationId = not isR15 and "rbxassetid://72042024" or "rbxassetid://698251653"
+                    jerkTrack = humanoid:LoadAnimation(anim)
+                end
+                
+                jerkTrack:Play()
+                jerkTrack:AdjustSpeed(isR15 and 0.7 or 0.65)
+                jerkTrack.TimePosition = 0.6
+                task.wait(0.1)
+                
+                while jerkTrack and jerkTrack.TimePosition < (not isR15 and 0.65 or 0.7) do
+                    task.wait(0.05)
+                    if not jerkActive or not jerkJorking then break end
+                end
+                
+                if jerkTrack then
+                    jerkTrack:Stop()
+                    jerkTrack = nil
+                end
+            end
+            task.wait(0.05)
+        end
+    end)
+    
+    notify("Jerk", "Activated! Use the tool in your inventory.")
+end
+
+local function StopJerk()
+    jerkActive = false
+    jerkJorking = false
+    
+    if jerkTool then
+        jerkTool:Destroy()
+        jerkTool = nil
+    end
+    
+    if jerkTrack then
+        jerkTrack:Stop()
+        jerkTrack = nil
+    end
+    
+    local char = Player.Character
+    if char then
+        local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                if track.Animation and track.Animation.AnimationId and 
+                   (string.find(track.Animation.AnimationId, "72042024") or 
+                    string.find(track.Animation.AnimationId, "698251653")) then
+                    track:Stop()
+                end
+            end
+        end
+    end
+    
+    notify("Jerk", "Disabled")
+end
+
+local function StartBang(targetName)
+    if bangActive then
+        StopBang()
+        task.wait(0.1)
+    end
+    
+    local char = Player.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    
+    if not char or not humanoid then
+        notify("Bang", "Character not found!")
+        return
+    end
+    
+    local targetPlayer = nil
+    if targetName and targetName ~= "" then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= Player and string.lower(p.Name) == string.lower(targetName) then
+                targetPlayer = p
+                break
+            end
+        end
+        if not targetPlayer then
+            notify("Bang", "Player " .. targetName .. " not found!")
+            return
+        end
+    else
+        notify("Bang", "Enter a player name!")
+        return
+    end
+    
+    bangActive = true
+    bangTarget = targetPlayer
+    
+    local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+    bangAnim = Instance.new("Animation")
+    bangAnim.AnimationId = not isR15 and "rbxassetid://148840371" or "rbxassetid://5918726674"
+    bangTrack = humanoid:LoadAnimation(bangAnim)
+    bangTrack:Play(0.1, 1, 1)
+    bangTrack:AdjustSpeed(3)
+    
+    bangDiedConnection = humanoid.Died:Connect(function()
+        StopBang()
+    end)
+    
+    bangSeatConnection = humanoid.Seated:Connect(function(value)
+        if value then
+            StopBang()
+        end
+    end)
+    
+    task.spawn(function()
+        local bangOffset = CFrame.new(0, 0, 1.1)
+        while bangActive and bangTarget and bangTarget.Character do
+            pcall(function()
+                local targetRoot = bangTarget.Character:FindFirstChild("HumanoidRootPart") or 
+                                  bangTarget.Character:FindFirstChild("Torso") or 
+                                  bangTarget.Character:FindFirstChild("UpperTorso")
+                local myRoot = char:FindFirstChild("HumanoidRootPart") or 
+                              char:FindFirstChild("Torso") or 
+                              char:FindFirstChild("UpperTorso")
+                if targetRoot and myRoot then
+                    myRoot.CFrame = targetRoot.CFrame * bangOffset
+                end
+            end)
+            task.wait(0.05)
+        end
+    end)
+    
+    notify("Bang", "On " .. targetPlayer.Name .. " activated!")
+end
+
+local function StopBang()
+    bangActive = false
+    
+    if bangTrack then
+        bangTrack:Stop()
+        bangTrack = nil
+    end
+    
+    if bangAnim then
+        bangAnim:Destroy()
+        bangAnim = nil
+    end
+    
+    if bangDiedConnection then
+        bangDiedConnection:Disconnect()
+        bangDiedConnection = nil
+    end
+    
+    if bangSeatConnection then
+        bangSeatConnection:Disconnect()
+        bangSeatConnection = nil
+    end
+    
+    bangTarget = nil
+    
+    notify("Bang", "Disabled")
+end
+
+-- =============================================
+-- ========== СОЗДАНИЕ КНОПКИ SHOT ==========
+-- =============================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "KITI_UI"
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+shotButton = Instance.new("TextButton")
+shotButton.Size = UDim2.new(0, 70, 0, 70)
+shotButton.Position = UDim2.new(0.88, -35, 0.78, -35)
+shotButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+shotButton.BackgroundTransparency = 0.3
+shotButton.BorderSizePixel = 1
+shotButton.BorderColor3 = Color3.fromRGB(100, 100, 100)
+shotButton.Text = "Shot"
+shotButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+shotButton.TextSize = 14
+shotButton.Font = Enum.Font.GothamBold
+shotButton.AutoButtonColor = false
+shotButton.Parent = ScreenGui
+shotButton.ZIndex = 10
+shotButton.Visible = false
+
+local shotCorner = Instance.new("UICorner")
+shotCorner.CornerRadius = UDim.new(0, 22)
+shotCorner.Parent = shotButton
+
+shotButton.MouseButton1Click:Connect(function()
+    AttemptShoot()
+end)
+shotButton.TouchTap:Connect(function()
+    AttemptShoot()
+end)
+
+-- =============================================
+-- ========== ОБРАБОТКА ПЕРЕЗАХОДОВ ==========
+-- =============================================
+Player.CharacterAdded:Connect(function()
+    if jerkActive then
+        StopJerk()
+    end
+    if bangActive then
+        StopBang()
+    end
+    if flyActive then
+        StopFly()
+    end
+    if noclipActive then
+        StopNoclip()
+    end
+end)
+
+-- =============================================
+-- ========== COMBAT TAB ==========
+-- =============================================
+do
+    local Sheriff = Combat:AddSection({
+        Position = 'left',
+        Name = "SHERIFF"
+    });
+    
+    Sheriff:AddToggle({
+        Name = "SilentAim-E",
+        Callback = function(state)
+            silentAimEnabled = state
+            notify("SilentAim-E", state and "Enabled (press E to shoot)" or "Disabled")
+        end
+    });
+    
+    Sheriff:AddToggle({
+        Name = "ToggleShot",
+        Callback = function(state)
+            shotButton.Visible = state
+            if state then
+                shotButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+                shotButton.BackgroundTransparency = 0.1
+                shotButton.BorderColor3 = Color3.fromRGB(255, 100, 100)
+                notify("ToggleShot", "Shot button enabled")
+            else
+                shotButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                shotButton.BackgroundTransparency = 0.3
+                shotButton.BorderColor3 = Color3.fromRGB(100, 100, 100)
+                notify("ToggleShot", "Shot button disabled")
+            end
+        end
+    });
+    
+    local Murder = Combat:AddSection({
+        Position = 'center',
+        Name = "MURDER"
+    });
+    
+    Murder:AddButton({
+        Name = "KillAll",
+        Callback = function()
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= Player and p.Character then
+                    local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
+                        humanoid.Health = 0
+                    end
+                end
+            end
+            notify("KillAll", "All players killed!")
+        end
+    });
+end
+
+-- =============================================
+-- ========== VISUAL TAB ==========
+-- =============================================
+do
+    -- ===== AURA =====
+    local Aura = Visual:AddSection({
+        Position = 'left',
+        Name = "AURA"
+    });
+    
+    Aura:AddToggle({
+        Name = "Aura Enabled",
+        Callback = function(state)
+            auraActive = state
+            if state then
+                applyAura()
+                notify("Aura", "Enabled")
+            else
+                clearAura()
+                notify("Aura", "Disabled")
+            end
+        end
+    });
+    
+    for _, name in ipairs(aura_order) do
+        Aura:AddToggle({
+            Name = name:upper(),
+            Callback = function(state)
+                auraSelected[name] = state
+                if auraActive then
+                    applyAura()
+                end
+            end
+        })
+    end
+    
+    -- Цветовая палитра
+    Aura:AddSlider({
+        Name = "Red",
+        Default = 133,
+        Type = "",
+        Min = 0,
+        Max = 255,
+        Callback = function(value)
+            auraColorValues.R = value
+            updateAuraColor()
+        end
+    });
+    
+    Aura:AddSlider({
+        Name = "Green",
+        Default = 220,
+        Type = "",
+        Min = 0,
+        Max = 255,
+        Callback = function(value)
+            auraColorValues.G = value
+            updateAuraColor()
+        end
+    });
+    
+    Aura:AddSlider({
+        Name = "Blue",
+        Default = 255,
+        Type = "",
+        Min = 0,
+        Max = 255,
+        Callback = function(value)
+            auraColorValues.B = value
+            updateAuraColor()
+        end
+    });
+    
+    -- ===== ESP (из ВЕСПУМУШ - цвета: красный/синий/зелёный) =====
+    local Esp = Visual:AddSection({
+        Position = 'center',
+        Name = "ESP"
+    });
+    
+    Esp:AddToggle({
+        Name = "ESP (Innocent, Sheriff, Murderer)",
+        Callback = function(state)
+            ESP_Enabled = state
+            if ESP_Enabled then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    applyESP(player)
+                end
+                if espConnection then espConnection:Disconnect() end
+                espConnection = Players.PlayerAdded:Connect(applyESP)
+                notify("ESP", "Enabled")
+            else
+                removeESP()
+                if espConnection then 
+                    espConnection:Disconnect() 
+                    espConnection = nil 
+                end
+                notify("ESP", "Disabled")
+            end
+        end
+    });
+    
+    Esp:AddToggle({
+        Name = "GunEsp",
+        Callback = function(state)
+            gunEspEnabled = state
+            if not state then
+                for _, obj in pairs(gunEspObjects) do
+                    pcall(function() obj:Destroy() end)
+                end
+                gunEspObjects = {}
+            end
+            notify("GunESP", state and "Enabled" or "Disabled")
+        end
+    });
+    
+    -- ===== AMBIENT =====
+    local Ambient = Visual:AddSection({
+        Position = 'center',
+        Name = "AMBIENT"
+    });
+    
+    Ambient:AddToggle({
+        Name = "Evening",
+        Callback = function(state)
+            if state then
+                ApplyShader("Evening")
+                StartShaderLoop()
+            else
+                ApplyShader("None")
+            end
+        end
+    });
+    
+    Ambient:AddToggle({
+        Name = "Night",
+        Callback = function(state)
+            if state then
+                ApplyShader("Night")
+                StartShaderLoop()
+            else
+                ApplyShader("None")
+            end
+        end
+    });
+    
+    Ambient:AddToggle({
+        Name = "Day",
+        Callback = function(state)
+            if state then
+                ApplyShader("None")
+            end
+        end
+    });
+    
+    -- ===== OPTIMIZATION =====
+    local Optimization = Visual:AddSection({
+        Position = 'right',
+        Name = "OPTIMIZATION"
+    });
+    
+    Optimization:AddToggle({
+        Name = "FpsBoost",
+        Callback = function(state)
+            if state then
+                EnableFPSBoost()
+            else
+                DisableFPSBoost()
+            end
+        end
+    });
+end
+
+-- =============================================
+-- ========== MOVEMENT TAB ==========
+-- =============================================
+do
+    local Bhop = Movement:AddSection({
+        Position = 'left',
+        Name = "BHOP"
+    });
+    
+    Bhop:AddToggle({
+        Name = "Bhop",
+        Callback = function(state)
+            bhopActive = state
+            if state then
+                StartBhop()
+            else
+                StopBhop()
+            end
+        end
+    });
+    
+    Bhop:AddSlider({
+        Name = "Bhop Speed",
+        Default = 50,
+        Type = "%",
+        Min = 0,
+        Max = 100,
+        Callback = function(value)
+            bhopSpeed = value
+        end
+    });
+    
+    local Spin = Movement:AddSection({
+        Position = 'center',
+        Name = "SPIN"
+    });
+    
+    Spin:AddToggle({
+        Name = "Spin",
+        Callback = function(state)
+            if state then
+                ApplySpin(spinSpeed > 0 and spinSpeed or 50)
+            else
+                ApplySpin(0)
+            end
+        end
+    });
+    
+    Spin:AddSlider({
+        Name = "Spin Speed",
+        Default = 50,
+        Type = "°",
+        Min = 0,
+        Max = 150,
+        Callback = function(value)
+            spinSpeed = value
+            if spinActive then
+                ApplySpin(value)
+            end
+        end
+    });
+    
+    local WalkSpeed = Movement:AddSection({
+        Position = 'right',
+        Name = "WALK SPEED"
+    });
+    
+    WalkSpeed:AddToggle({
+        Name = "Walk Speed",
+        Callback = function(state)
+            if state then
+                local char = Player.Character
+                if char then
+                    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                    if humanoid then
+                        humanoid.WalkSpeed = currentWalkSpeed
+                    end
+                end
+            end
+        end
+    });
+    
+    WalkSpeed:AddSlider({
+        Name = "Speed",
+        Default = 16,
+        Type = "%",
+        Min = 0,
+        Max = 100,
+        Callback = function(value)
+            currentWalkSpeed = value
+            local char = Player.Character
+            if char then
+                local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = value
+                end
+            end
+        end
+    });
+    
+    local Extra = Movement:AddSection({
+        Position = 'center',
+        Name = "EXTRA MOVES"
+    });
+    
+    Extra:AddToggle({
+        Name = "Fly",
+        Callback = function(state)
+            if state then
+                StartFly()
+            else
+                StopFly()
+            end
+        end
+    });
+    
+    Extra:AddToggle({
+        Name = "Noclip",
+        Callback = function(state)
+            if state then
+                StartNoclip()
+            else
+                StopNoclip()
+            end
+        end
+    });
+    
+    Extra:AddToggle({
+        Name = "InfJump",
+        Callback = function(state)
+            if state then
+                StartInfJump()
+            else
+                StopInfJump()
+            end
+        end
+    });
+end
+
+-- =============================================
+-- ========== TELEPORT TAB ==========
+-- =============================================
+do
+    local TeleportSection = Teleport:AddSection({
+        Position = 'left',
+        Name = "TELEPORT"
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TeleportTool",
+        Callback = function()
+            local TpTool = Instance.new("Tool")
+            TpTool.Name = "Teleport Tool"
+            TpTool.RequiresHandle = false
+            TpTool.Parent = Player:FindFirstChildOfClass("Backpack")
+            local mouse = Player:GetMouse()
+            TpTool.Activated:Connect(function()
+                local rootPart = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+                if not rootPart then return end
+                local targetPos = mouse.Hit
+                if not targetPos then return end
+                rootPart.CFrame = CFrame.new(targetPos.X, targetPos.Y + 3, targetPos.Z)
+                for _, v in ipairs(Player.Character:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.Velocity = Vector3.new(0, 0, 0)
+                        v.RotVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+            end)
+            notify("Teleport", "Tool added to inventory")
+        end
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TpToMurder",
+        Callback = function()
+            local murderers = GetRolePlayers("murderer")
+            if #murderers > 0 then
+                TeleportToPlayer(murderers[1])
+            else
+                notify("Teleport", "Murderer not found")
+            end
+        end
+    });
+    
+    TeleportSection:AddButton({
+        Name = "TpToSheriff",
+        Callback = function()
+            local sheriffs = GetRolePlayers("sheriff")
+            if #sheriffs > 0 then
+                TeleportToPlayer(sheriffs[1])
+            else
+                notify("Teleport", "Sheriff not found")
+            end
+        end
+    });
+    
+    local StealthTP = Teleport:AddSection({
+        Position = 'center',
+        Name = "STEALTH TP"
+    });
+    
+    StealthTP:AddToggle({
+        Name = "StealthTpGun",
+        Callback = function(state)
+            autoGunEnabled = state
+            notify("Stealth TP", state and "Auto gun pickup enabled!" or "Auto gun pickup disabled.")
+        end
+    });
+end
+
+-- =============================================
+-- ========== FUNNY TAB ==========
+-- =============================================
+do
+    local Jerk = Funny:AddSection({
+        Position = 'left',
+        Name = "JERK"
+    });
+    
+    Jerk:AddButton({
+        Name = "Jerk",
+        Callback = function()
+            if not jerkActive then
+                StartJerk()
+            else
+                StopJerk()
+            end
+        end
+    });
+    
+    local GBang = Funny:AddSection({
+        Position = 'center',
+        Name = "GBANG"
+    });
+    
+    local gbangTextBox = GBang:AddTextBox({
+        Name = "Player Name",
+        Placeholder = "Enter player name..."
+    });
+    
+    GBang:AddToggle({
+        Name = "GBang",
+        Callback = function(state)
+            if state then
+                local targetName = gbangTextBox and gbangTextBox.Text or ""
+                if targetName and targetName ~= "" then
+                    StartBang(targetName)
+                else
+                    notify("GBang", "Enter a player name first!")
+                end
+            else
+                StopBang()
+            end
+        end
+    });
+end
+
+-- =============================================
+-- ========== OTHER TAB ==========
+-- =============================================
+do
+    -- GUI BIND - настройка клавиши для открытия меню
+    local GuiBind = Other:AddSection({
+        Name = "GUI BIND",
+        Position = 'left'
+    });
+    
+    bindTextBox = GuiBind:AddTextBox({
+        Name = "Current Key",
+        Placeholder = "LeftAlt"
+    });
+    local currentKeyName = tostring(menuBindKey):gsub("Enum.KeyCode.", "")
+    bindTextBox.Text = currentKeyName
+    bindTextBox.PlaceholderText = "Press any key..."
+    
+    GuiBind:AddButton({
+        Name = "Press to Set Key",
+        Callback = function()
+            if isWaitingForKey then
+                isWaitingForKey = false
+                notify("Bind", "Cancelled")
+                return
+            end
+            isWaitingForKey = true
+            bindTextBox.Text = "Press any key..."
+            notify("Bind", "Press any key to set bind")
+            task.wait(0.5)
+        end
+    });
+    
+    GuiBind:AddButton({
+        Name = "Reset to LeftAlt",
+        Callback = function()
+            isWaitingForKey = false
+            menuBindKey = Enum.KeyCode.LeftAlt
+            bindTextBox.Text = "LeftAlt"
+            notify("Bind", "Reset to LeftAlt")
+        end
+    });
+    
+    GuiBind:AddButton({
+        Name = "Show Current Bind",
+        Callback = function()
+            local keyName = tostring(menuBindKey):gsub("Enum.KeyCode.", "")
+            notify("Current Bind", "Menu toggle: " .. keyName)
+        end
+    });
+    
+    local OtherExtra = Other:AddSection({
+        Name = "EXTRA",
+        Position = 'center'
+    });
+    
+    OtherExtra:AddButton({
+        Name = "Rejoin",
+        Callback = function()
+            game:GetService("TeleportService"):Teleport(game.PlaceId, Player)
+        end
+    });
+end

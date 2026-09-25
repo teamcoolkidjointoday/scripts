@@ -1,0 +1,150 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Fatality = loadstring(game:HttpGet("https://raw.githubusercontent.com/sosopjs/menuft/refs/heads/main/menu"))();
+local Notification = Fatality:CreateNotifier();
+
+Fatality:Loader({
+	Name = "KITI",
+	Duration = 4
+});
+
+Notification:Notify({
+	Title = "KITI",
+	Content = "Hello, "..game.Players.LocalPlayer.DisplayName..' Welcome back!',
+	Icon = "clipboard"
+})
+
+local Window = Fatality.new({
+	Name = "KITI",
+	Expire = "never",
+});
+
+-- ===== TABS =====
+local Combat = Window:AddMenu({
+	Name = "COMBAT",
+	Icon = "skull"
+})
+
+local Visual = Window:AddMenu({
+	Name = "VISUAL",
+	Icon = "eye"
+})
+
+local Movement = Window:AddMenu({
+	Name = "MOVEMENT",
+	Icon = "move"
+})
+
+local Teleport = Window:AddMenu({
+	Name = "TELEPORT",
+	Icon = "globe"
+})
+
+local Funny = Window:AddMenu({
+	Name = "FUNNY",
+	Icon = "smile"
+})
+
+local Other = Window:AddMenu({
+	Name = "OTHER",
+	Icon = "settings"
+})
+
+-- ===== SECTIONS FOR COMBAT =====
+do
+	local Weapon = Combat:AddSection({
+		Position = 'left',
+		Name = "1"
+	});
+	
+	local Extra = Combat:AddSection({
+		Position = 'center',
+		Name = "2"
+	});
+	
+	local General = Combat:AddSection({
+		Position = 'right',
+		Name = "3"
+	});
+end
+
+-- ===== SECTIONS FOR VISUAL =====
+do
+	local Aim = Visual:AddSection({
+		Position = 'left',
+		Name = "4"
+	});
+	
+	local Rcs = Visual:AddSection({
+		Position = 'left',
+		Name = "5"
+	});
+
+	local Trigger = Visual:AddSection({
+		Position = 'center',
+		Name = "6"
+	});
+	
+	local Backtrack = Visual:AddSection({
+		Position = 'center',
+		Name = "7"
+	});
+
+	local General = Visual:AddSection({
+		Position = 'right',
+		Name = "8"
+	});
+end
+
+-- ===== SECTIONS FOR MOVEMENT =====
+do
+	local MovementMain = Movement:AddSection({
+		Name = "9",
+		Position = 'left'
+	})
+	
+	local MovementExtra = Movement:AddSection({
+		Name = "10",
+		Position = 'center'
+	})
+end
+
+-- ===== SECTIONS FOR TELEPORT =====
+do
+	local TeleportMain = Teleport:AddSection({
+		Name = "11",
+		Position = 'left'
+	})
+	
+	local TeleportExtra = Teleport:AddSection({
+		Name = "12",
+		Position = 'center'
+	})
+end
+
+-- ===== SECTIONS FOR FUNNY =====
+do
+	local FunnyMain = Funny:AddSection({
+		Name = "13",
+		Position = 'left'
+	})
+	
+	local FunnyExtra = Funny:AddSection({
+		Name = "14",
+		Position = 'center'
+	})
+end
+
+-- ===== SECTIONS FOR OTHER =====
+do
+	local OtherMain = Other:AddSection({
+		Name = "15",
+		Position = 'left'
+	})
+	
+	local OtherExtra = Other:AddSection({
+		Name = "16",
+		Position = 'center'
+	})
+end
