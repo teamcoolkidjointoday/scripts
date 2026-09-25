@@ -3,7 +3,7 @@
 -- Структура: Versions, Obusik, GivGet, Fixap, function, menu
 -- ==================================================
 
-local BASE_URL = "https://raw.githubusercontent.com/teamcoolkidjointoday/MyHub/main/"
+local BASE_URL = "https://raw.githubusercontent.com/teamcoolkidjointoday/scripts/main/MyHub/"
 
 _G.MYHUB = _G.MYHUB or {}
 _G.MYHUB.Cache = {}
